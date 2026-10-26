@@ -14,9 +14,6 @@ import pyqtgraph as pg
 # Die SerialStream-Klasse deiner Hochschule importieren
 from SerialStream import SerialStream
 
-# ==========================================
-# THREAD FÜR DIE SERIELLE KOMMUNIKATION
-# ==========================================
 class MeasurementWorker(QThread):
     connection_status = pyqtSignal(bool, str)
     state_update = pyqtSignal(str)
@@ -48,7 +45,7 @@ class MeasurementWorker(QThread):
         self.state_update.emit("MESSUNG LÄUFT... (Warte auf STM32)")
         try:
             self.serial_stream.reset()
-            self.serial_stream.start()  # Sendet Start-Byte 255
+            self.serial_stream.start()
 
             while self.serial_stream.is_busy_flag():
                 time.sleep(0.1)
@@ -61,26 +58,22 @@ class MeasurementWorker(QThread):
             self.state_update.emit(f"FEHLER: {e}")
 
     def send_command(self, cmd_string):
-        """Sendet Text-Befehle (z.B. STOP, TARE) über den offenen Port."""
         if self.serial_stream and self.serial_stream.SerialPort.is_open:
             self.serial_stream.SerialPort.write(f"{cmd_string}\n".encode('utf-8'))
 
     def stop(self):
         self.is_running = False
 
-
-# ==========================================
-# HAUPTFENSTER (GUI)
-# ==========================================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Tensile Testing Machine - PES Board")
-        self.resize(1000, 700)
+        self.resize(1100, 750)
 
-        # Port anpassen (z.B. "COM3" für Windows)
         self.port_name = "/dev/ttyUSB0" 
         self.baudrate = int(2e6)
+        
+        # Speichert die berechneten Daten für den Export
         self.messdaten = None
 
         self.init_ui()
@@ -95,7 +88,7 @@ class MainWindow(QMainWindow):
         main_widget = QWidget()
         main_layout = QVBoxLayout()
 
-        # --- Top Bar (Status) ---
+        # --- Top Bar ---
         status_layout = QHBoxLayout()
         self.lbl_conn = QLabel("Suche Verbindung...")
         self.lbl_state = QLabel("Status: BEREIT")
@@ -104,25 +97,26 @@ class MainWindow(QMainWindow):
         status_layout.addWidget(self.lbl_state)
         main_layout.addLayout(status_layout)
 
-        # --- Mittlerer Bereich (Einstellungen & Graph) ---
+        # --- Mittlerer Bereich ---
         mid_layout = QHBoxLayout()
 
-        # Linke Spalte: Parameter & Manuelle Steuerung
         left_col = QVBoxLayout()
         
-        # Probenparameter
+        # Probenparameter (Jetzt mit Anfangslänge L0)
         param_group = QGroupBox("Prüfkörper Parameter")
         param_layout = QFormLayout()
         self.input_name = QLineEdit("Probe_01")
+        self.input_length = QLineEdit("50.0")  # L0 für Dehnungsberechnung
         self.input_width = QLineEdit("10.0")
         self.input_thickness = QLineEdit("2.0")
         param_layout.addRow("Proben-Name:", self.input_name)
+        param_layout.addRow("Anfangslänge L0 (mm):", self.input_length)
         param_layout.addRow("Breite (mm):", self.input_width)
         param_layout.addRow("Dicke (mm):", self.input_thickness)
         param_group.setLayout(param_layout)
         left_col.addWidget(param_group)
 
-        # Manuelle Steuerung (Jogging)
+        # Manuelle Steuerung
         jog_group = QGroupBox("Einspannen & Setup")
         jog_layout = QVBoxLayout()
         btn_up = QPushButton("Motor AUFWÄRTS (Jog)")
@@ -140,17 +134,17 @@ class MainWindow(QMainWindow):
         left_col.addStretch()
         mid_layout.addLayout(left_col, 1)
 
-        # Rechte Spalte: Graph
-        self.graphWidget = pg.PlotWidget(title="Zugversuch Auswertung")
-        self.graphWidget.setLabel('left', 'Kraft', units='N')
-        self.graphWidget.setLabel('bottom', 'Zeit (oder Weg)', units='s/mm')
+        # Rechte Spalte: Graph (Spannung-Dehnung)
+        self.graphWidget = pg.PlotWidget(title="Spannungs-Dehnungs-Diagramm")
+        self.graphWidget.setLabel('left', 'Spannung (MPa)', units='N/mm²')
+        self.graphWidget.setLabel('bottom', 'Dehnung', units='%')
         self.graphWidget.showGrid(x=True, y=True)
-        self.plot_line = self.graphWidget.plot([], [], pen=pg.mkPen('r', width=2))
+        self.plot_line = self.graphWidget.plot([], [], pen=pg.mkPen('b', width=2))
         mid_layout.addWidget(self.graphWidget, 3)
 
         main_layout.addLayout(mid_layout)
 
-        # --- Bottom Bar (Hauptsteuerung) ---
+        # --- Bottom Bar ---
         btn_layout = QHBoxLayout()
         
         btn_start = QPushButton("START ZUGVERSUCH")
@@ -178,7 +172,6 @@ class MainWindow(QMainWindow):
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
 
-    # --- Event Handler ---
     def on_connection_status(self, connected, msg):
         self.lbl_conn.setText(msg)
         self.lbl_conn.setStyleSheet("color: green; font-weight:bold;" if connected else "color: red; font-weight:bold;")
@@ -187,7 +180,6 @@ class MainWindow(QMainWindow):
         self.lbl_state.setText(f"Status: {state}")
 
     def on_result_ready(self, data):
-        self.messdaten = data
         time_array = data["time"]
         values_array = data["values"]
 
@@ -195,53 +187,82 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Fehler", "Keine Daten empfangen!")
             return
 
-        # Nimmt an, dass Float 0 die Kraft in Newton ist
-        force_values = values_array[:, 0] 
-        self.plot_line.setData(time_array, force_values)
-        QMessageBox.information(self, "Erfolg", f"Versuch abgeschlossen! {len(time_array)} Messpunkte erfasst.")
+        # Prüfen, ob der STM32 wirklich schon 2 Werte (Kraft, Weg) sendet
+        if values_array.shape[1] < 2:
+            QMessageBox.warning(self, "Warnung", "Der STM32 sendet noch keinen Weg! Bitte Firmware anpassen (braucht dtime, force, displacement).")
+            return
 
-    # --- Aktionen ---
+        # 1. Rohdaten extrahieren
+        force_N = values_array[:, 0] 
+        displacement_mm = values_array[:, 1]
+
+        # 2. Geometrie auslesen
+        try:
+            l0 = float(self.input_length.text().replace(',', '.'))
+            width = float(self.input_width.text().replace(',', '.'))
+            thickness = float(self.input_thickness.text().replace(',', '.'))
+        except ValueError:
+            QMessageBox.warning(self, "Fehler", "Bitte gültige Zahlen für die Probengeometrie eingeben.")
+            return
+
+        # 3. Spannung und Dehnung berechnen
+        area_mm2 = width * thickness
+        stress_MPa = force_N / area_mm2
+        strain_pct = (displacement_mm / l0) * 100
+
+        # 4. Daten speichern & plotten
+        self.messdaten = {
+            "time_s": time_array,
+            "force_N": force_N,
+            "disp_mm": displacement_mm,
+            "stress_MPa": stress_MPa,
+            "strain_pct": strain_pct
+        }
+        
+        self.plot_line.setData(strain_pct, stress_MPa)
+        QMessageBox.information(self, "Erfolg", f"Versuch abgeschlossen! {len(time_array)} Messpunkte berechnet.")
+
     def start_measurement(self):
         self.plot_line.setData([], [])
+        self.messdaten = None
         self.worker.start_measurement()
 
     def export_data(self):
-        if self.messdaten is None or len(self.messdaten["time"]) == 0:
-            QMessageBox.warning(self, "Fehler", "Keine Messdaten vorhanden!")
+        if self.messdaten is None:
+            QMessageBox.warning(self, "Fehler", "Keine berechneten Messdaten vorhanden!")
             return
             
-        # Automatischen Dateinamen vorschlagen
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         proben_name = self.input_name.text().replace(" ", "_")
         default_filename = f"{timestamp}_{proben_name}.csv"
             
-        path, _ = QFileDialog.getSaveFileName(self, "Messdaten speichern", default_filename, "CSV Files (*.csv);;NPZ Archive (*.npz)")
+        path, _ = QFileDialog.getSaveFileName(self, "Messdaten speichern", default_filename, "CSV Files (*.csv)")
         
-        if not path:
-            return
-
-        if path.endswith(".npz"):
-            np.savez(path, **self.messdaten)
-            
-        elif path.endswith(".csv"):
+        if path:
             with open(path, mode='w', newline='') as file:
                 writer = csv.writer(file, delimiter=';')
                 
-                # Metadaten in den Header der CSV schreiben
+                # Metadaten
                 writer.writerow(["# Probenname", self.input_name.text()])
+                writer.writerow(["# L0 (mm)", self.input_length.text()])
                 writer.writerow(["# Breite (mm)", self.input_width.text()])
                 writer.writerow(["# Dicke (mm)", self.input_thickness.text()])
-                writer.writerow([]) # Leerzeile
+                writer.writerow([])
                 
-                num_cols = self.messdaten["values"].shape[1]
-                header = ['Zeit (s)'] + [f'Float_{i}' for i in range(num_cols)]
-                writer.writerow(header)
+                # Spaltenköpfe
+                writer.writerow(['Zeit (s)', 'Kraft (N)', 'Weg (mm)', 'Spannung (MPa)', 'Dehnung (%)'])
                 
-                for i in range(len(self.messdaten["time"])):
-                    row = [self.messdaten["time"][i]] + list(self.messdaten["values"][i, :])
-                    writer.writerow(row)
+                # Datenzeilen
+                for i in range(len(self.messdaten["time_s"])):
+                    writer.writerow([
+                        round(self.messdaten["time_s"][i], 4),
+                        round(self.messdaten["force_N"][i], 3),
+                        round(self.messdaten["disp_mm"][i], 4),
+                        round(self.messdaten["stress_MPa"][i], 3),
+                        round(self.messdaten["strain_pct"][i], 4)
+                    ])
                     
-        QMessageBox.information(self, "Erfolg", "Daten wurden erfolgreich exportiert!")
+            QMessageBox.information(self, "Erfolg", "Daten erfolgreich exportiert!")
 
     def closeEvent(self, event):
         self.worker.stop()
