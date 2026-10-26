@@ -91,7 +91,7 @@ class MainWindow(QMainWindow):
         # --- Top Bar ---
         status_layout = QHBoxLayout()
         self.lbl_conn = QLabel("Suche Verbindung...")
-        self.lbl_state = QLabel("Status: BEREIT")
+        self.lbl_state = QLabel("Status: Init UI")
         self.lbl_state.setStyleSheet("font-weight: bold; font-size: 14px;")
         status_layout.addWidget(self.lbl_conn)
         status_layout.addWidget(self.lbl_state)
