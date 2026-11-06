@@ -1,5 +1,7 @@
 #include "mbed.h"
 
+
+
 // pes board pin map
 #include "PESBoardPinMap.h"
 
@@ -15,6 +17,14 @@ bool do_reset_all_once = false;    // this variable is used to reset certain var
 DebounceIn user_button(BUTTON1);   // create DebounceIn to evaluate the user button
 void toggle_do_execute_main_fcn(); // custom function which is getting executed when user
                                    // button gets pressed, definition at the end
+
+
+// ir distance sensor
+float AI_digits = 0.0f; // define a variable to store measurement (in mV)
+AnalogIn ir_analog_in(PC_2); // create AnalogIn object to read in the infrared distance sensor
+                             // 0...3.3V are mapped to 0...1
+
+
 
 // main runs as an own thread
 int main()
@@ -47,6 +57,13 @@ int main()
         main_task_timer.reset();
 
         // --- code that runs every cycle at the start goes here ---
+
+        
+// read analog input
+        AI_digits = ir_analog_in.read();
+
+// print to the serial terminal
+        printf("AI_digits mV: %f \n", AI_digits);
 
         if (do_execute_main_task) {
 
