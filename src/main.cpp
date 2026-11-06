@@ -1,106 +1,133 @@
 #include "mbed.h"
 
-
-
 // pes board pin map
 #include "PESBoardPinMap.h"
 
 // drivers
 #include "DebounceIn.h"
 
-bool do_execute_main_task = false; // this variable will be toggled via the user button (blue button) and
-                                   // decides whether to execute the main task or not
-bool do_reset_all_once = false;    // this variable is used to reset certain variables and objects and
-                                   // shows how you can run a code segment only once
+bool do_execute_main_task = false; 
+bool do_reset_all_once = false;    
 
 // objects for user button (blue button) handling on nucleo board
-DebounceIn user_button(BUTTON1);   // create DebounceIn to evaluate the user button
-void toggle_do_execute_main_fcn(); // custom function which is getting executed when user
-                                   // button gets pressed, definition at the end
-
+DebounceIn user_button(BUTTON1);   
+void toggle_do_execute_main_fcn(); 
 
 // ir distance sensor
-float AI_digits = 0.0f; // define a variable to store measurement (in mV)
-AnalogIn ir_analog_in(PC_2); // create AnalogIn object to read from xx
+float AI_digits = 0.0f; 
+AnalogIn ir_analog_in(PC_2); 
+
+// HX711 Pins
+DigitalOut hx711_sck(PB_4); 
+DigitalIn  hx711_dt(PC_5);  
 
 
+// --- Funktion zum Auslesen des HX711 (MUSS VOR MAIN STEHEN) ---
+int32_t read_hx711() {
+    if (hx711_dt.read() == 1) {
+        return 0; // Keine neuen Daten verfügbar
+    }
 
-// main runs as an own thread
+    int32_t raw_value = 0;
+
+    for (int i = 0; i < 24; i++) {
+        hx711_sck.write(1);
+        wait_us(1); 
+        
+        raw_value = raw_value << 1; 
+        
+        hx711_sck.write(0);
+        if (hx711_dt.read() == 1) {
+            raw_value++; 
+        }
+        wait_us(1);
+    }
+
+    // 25. Takt-Impuls (Gain 128)
+    hx711_sck.write(1);
+    wait_us(1);
+    hx711_sck.write(0);
+    wait_us(1);
+
+    if (raw_value & 0x800000) {
+        raw_value |= 0xFF000000;
+    }
+
+    return raw_value;
+}
 int main()
 {
-    // attach button fall function address to user button object
+    // HX711 Clock initial auf 0 setzen
+    hx711_sck.write(0);
+
+    // Button Interrupt verknüpfen
     user_button.fall(&toggle_do_execute_main_fcn);
 
-    // while loop gets executed every main_task_period_ms milliseconds, this is a
-    // simple approach to repeatedly execute main
-    const int main_task_period_ms = 20; // define main task period time in ms e.g. 20 ms, therefore
-                                        // the main task will run 50 times per second
-    Timer main_task_timer;              // create Timer object which we use to run the main task
-                                        // every main_task_period_ms
+    // Timer einrichten
+    const int main_task_period_ms = 20; // 20 ms Zykluszeit (50 Hz)
+    Timer main_task_timer;              
+    Timer total_timer;                  // Timer für die Ausgabe der Sekunden
 
-    // led on nucleo board
     DigitalOut user_led(LED1);
-
-    // additional led
-    // create DigitalOut object to command extra led, you need to add an additional resistor, e.g. 220...500 Ohm
-    // a led has an anode (+) and a cathode (-), the cathode needs to be connected to ground via the resistor
     DigitalOut led1(PB_9);
 
-    // --- adding variables and objects and applying functions starts here ---
+    // --- Kalibrierung der Wägezelle ---
+    float tare_offset = 95900.0f;           // Hier trägst du später den Rohwert ohne Gewicht ein
+    float calibration_factor = 2150.0f; // Hier trägst du später deinen berechneten Faktor ein
+    int print_counter = 0;              // Zählt die Durchläufe für den 1-Sekunden-Print
+    int32_t last_raw_force = 0;
+    float last_force_N = 0.0f;
 
-    // start timer
+    // Timer starten
     main_task_timer.start();
+    total_timer.start(); 
 
-    // this loop will run forever
+    // --- HAUPTSCHLEIFE ---
     while (true) {
         main_task_timer.reset();
 
-        // --- code that runs every cycle at the start goes here ---
+        // 1. Zeitstempel berechnen (in Sekunden)
+        float time_s = duration_cast<milliseconds>(total_timer.elapsed_time()).count() / 1000.0f;
 
+        // 2. Wägezelle auslesen
+        int32_t raw_force = read_hx711();
+        float force_N = 0.0f;
         
-// read analog input
-        AI_digits = ir_analog_in.read();
+if (raw_force != 0) {
+            last_raw_force = raw_force;
+            last_force_N = (raw_force - tare_offset) / calibration_factor;
+        }
 
-// print to the serial terminal
-        printf("AI_digits mV: %f \n", AI_digits);
+        // 3. Datenausgabe (nur alle 50 Durchläufe = 1x pro Sekunde)
+        print_counter++;
+        if (print_counter >= 10) {
+            printf("Zeit: %.3f s | Kraft: %.3f N | Rohwert: %d\n", time_s, last_force_N, (int)last_raw_force);
+            print_counter = 0; // Zähler zurücksetzen
+        }
 
+        // --- Button und LED Logik ---
         if (do_execute_main_task) {
-
-            // --- code that runs when the blue button was pressed goes here ---
-
-            // visual feedback that the main task is executed, setting this once would actually be enough
             led1 = 1;
         } else {
-            // the following code block gets executed only once
             if (do_reset_all_once) {
                 do_reset_all_once = false;
-
-                // --- variables and objects that should be reset go here ---
-
-                // reset variables and objects
                 led1 = 0;
             }
         }
-
-        // toggling the user led
         user_led = !user_led;
 
-        // --- code that runs every cycle at the end goes here ---
-
-        // read timer and make the main thread sleep for the remaining time span (non blocking)
+        // --- Zeitverzögerung für stabile 20ms ---
         int main_task_elapsed_time_ms = duration_cast<milliseconds>(main_task_timer.elapsed_time()).count();
-        if (main_task_period_ms - main_task_elapsed_time_ms < 0)
-            printf("Warning: Main task took longer than main_task_period_ms\n");
-        else
+        if (main_task_period_ms - main_task_elapsed_time_ms >= 0) {
             thread_sleep_for(main_task_period_ms - main_task_elapsed_time_ms);
+        }
     }
 }
 
+// --- Button Funktion ---
 void toggle_do_execute_main_fcn()
 {
-    // toggle do_execute_main_task if the button was pressed
     do_execute_main_task = !do_execute_main_task;
-    // set do_reset_all_once to true if do_execute_main_task changed from false to true
     if (do_execute_main_task)
         do_reset_all_once = true;
 }
