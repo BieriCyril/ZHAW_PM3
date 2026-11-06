@@ -195,7 +195,7 @@ class MainWindow(QMainWindow):
         
         btn_start = QPushButton("3. START TENSILE TEST")
         btn_start.setStyleSheet("background-color: lightgreen; height: 50px; font-weight: bold;")
-        btn_start.clicked.connect(self.start_measurement)
+        btn_start.clicked.connect(self.show_safety_popup)
         
         btn_stop = QPushButton("EMERGENCY STOP")
         btn_stop.setStyleSheet("background-color: salmon; height: 50px; font-weight: bold;")
@@ -217,6 +217,7 @@ class MainWindow(QMainWindow):
 
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
+
 
     def refresh_ports(self):
         self.cb_ports.clear()
@@ -333,6 +334,23 @@ class MainWindow(QMainWindow):
         self.worker.stop()
         self.worker.wait()
         event.accept()
+
+    def show_safety_popup(self):
+        # Create a safety confirmation popup
+        popup = QMessageBox(self)
+        popup.setWindowTitle("Safety Confirmation")
+        popup.setIcon(QMessageBox.Warning)
+        popup.setText("Safety Conditions:\n\n1. Make sure that the Testing System is unloaded and empty.\n2. Make sure the area is clear of personnel.\n3. Wear appropriate safety gear.\n\nDo you want to proceed with the tensile test?")
+
+        # Add Confirm and Cancel buttons
+        btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
+        popup.addButton("Cancel", QMessageBox.RejectRole)
+
+        # Show the popup and wait for user response
+        popup.exec_()
+        if popup.clickedButton() == btn_confirm:
+            self.start_measurement()
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
