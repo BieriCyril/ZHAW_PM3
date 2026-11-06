@@ -21,8 +21,7 @@ void toggle_do_execute_main_fcn(); // custom function which is getting executed 
 
 // ir distance sensor
 float AI_digits = 0.0f; // define a variable to store measurement (in mV)
-AnalogIn ir_analog_in(PC_2); // create AnalogIn object to read in the infrared distance sensor
-                             // 0...3.3V are mapped to 0...1
+AnalogIn ir_analog_in(PC_2); // create AnalogIn object to read from xx
 
 
 
