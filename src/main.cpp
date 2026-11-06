@@ -14,13 +14,16 @@ DebounceIn user_button(BUTTON1);
 void toggle_do_execute_main_fcn(); 
 
 // ir distance sensor
-float AI_digits = 0.0f; 
-AnalogIn ir_analog_in(PC_2); 
+float AI_digits = 0.0f;  
 
 // HX711 Pins
 DigitalOut hx711_sck(PB_4); 
 DigitalIn  hx711_dt(PC_5);  
 
+
+volatile int32_t tare_offset = 95900;         // Hier trägst du später den Rohwert ohne Gewicht ein
+volatile int32_t last_raw_force = 0;
+volatile float last_force_N = 0.0f;
 
 // --- Funktion zum Auslesen des HX711 (MUSS VOR MAIN STEHEN) ---
 int32_t read_hx711() {
@@ -72,11 +75,9 @@ int main()
     DigitalOut led1(PB_9);
 
     // --- Kalibrierung der Wägezelle ---
-    float tare_offset = 95900.0f;           // Hier trägst du später den Rohwert ohne Gewicht ein
     float calibration_factor = 2150.0f; // Hier trägst du später deinen berechneten Faktor ein
     int print_counter = 0;              // Zählt die Durchläufe für den 1-Sekunden-Print
-    int32_t last_raw_force = 0;
-    float last_force_N = 0.0f;
+
 
     // Timer starten
     main_task_timer.start();
@@ -129,4 +130,9 @@ void toggle_do_execute_main_fcn()
     do_execute_main_task = !do_execute_main_task;
     if (do_execute_main_task)
         do_reset_all_once = true;
+
+// Nulle auf den LETZTEN gültigen Rohwert (sicher gegen 0-Rückgaben!)
+    if (last_raw_force != 0) {
+        tare_offset = last_raw_force;
+    }
 }
