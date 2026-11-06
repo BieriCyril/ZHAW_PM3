@@ -91,7 +91,6 @@ int main()
 
         // 2. Wägezelle auslesen
         int32_t raw_force = read_hx711();
-        float force_N = 0.0f;
         
 if (raw_force != 0) {
             last_raw_force = raw_force;
