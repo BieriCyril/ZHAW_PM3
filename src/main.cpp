@@ -5,6 +5,7 @@
 
 // drivers
 #include "DebounceIn.h"
+#include "Stepper.h"
 
 bool do_execute_main_task = false; 
 bool do_reset_all_once = false;    
@@ -12,13 +13,17 @@ bool do_reset_all_once = false;
 // objects for user button (blue button) handling on nucleo board
 DebounceIn user_button(BUTTON1);   
 void toggle_do_execute_main_fcn(); 
+  
 
-// ir distance sensor
-float AI_digits = 0.0f;  
+
+
 
 // HX711 Pins
 DigitalOut hx711_sck(PB_4); 
 DigitalIn  hx711_dt(PC_5);  
+
+// Merkt sich den letzten Zustand des Motors
+bool last_stepper_state = false;
 
 
 volatile int32_t tare_offset = 95900;         // Hier trägst du später den Rohwert ohne Gewicht ein
@@ -62,7 +67,7 @@ int main()
 {
     // HX711 Clock initial auf 0 setzen
     hx711_sck.write(0);
-
+    Stepper stepper_M1(PB_9, PB_8);
     // Button Interrupt verknüpfen
     user_button.fall(&toggle_do_execute_main_fcn);
 
@@ -72,10 +77,9 @@ int main()
     Timer total_timer;                  // Timer für die Ausgabe der Sekunden
 
     DigitalOut user_led(LED1);
-    DigitalOut led1(PB_9);
 
     // --- Kalibrierung der Wägezelle ---
-    float calibration_factor = 2150.0f; // Hier trägst du später deinen berechneten Faktor ein
+    float calibration_factor = 358.0f; // Hier trägst du später deinen berechneten Faktor ein
     int print_counter = 0;              // Zählt die Durchläufe für den 1-Sekunden-Print
 
 
@@ -86,6 +90,18 @@ int main()
     // --- HAUPTSCHLEIFE ---
     while (true) {
         main_task_timer.reset();
+
+        
+        // 1. Stepper-Steuerung NUR BEI ZUSTANDSÄNDERUNG aufrufen
+        if (do_execute_main_task != last_stepper_state) {
+            last_stepper_state = do_execute_main_task;
+            
+            if (do_execute_main_task) {
+                stepper_M1.setVelocity(2.0f); // Einmalig starten
+            } else {
+                stepper_M1.setVelocity(2.0f); // Einmalig stoppen
+            }
+        }
 
         // 1. Zeitstempel berechnen (in Sekunden)
         float time_s = duration_cast<milliseconds>(total_timer.elapsed_time()).count() / 1000.0f;
@@ -107,11 +123,11 @@ if (raw_force != 0) {
 
         // --- Button und LED Logik ---
         if (do_execute_main_task) {
-            led1 = 1;
+
         } else {
             if (do_reset_all_once) {
                 do_reset_all_once = false;
-                led1 = 0;
+
             }
         }
         user_led = !user_led;
