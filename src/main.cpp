@@ -67,7 +67,7 @@ int main()
 {
     // HX711 Clock initial auf 0 setzen
     hx711_sck.write(0);
-    Stepper stepper_M1(PB_9, PB_8);
+    Stepper stepper_M1(PB_14, PC_4);
     // Button Interrupt verknüpfen
     user_button.fall(&toggle_do_execute_main_fcn);
 
