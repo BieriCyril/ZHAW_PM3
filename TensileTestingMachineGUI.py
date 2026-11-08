@@ -193,17 +193,17 @@ class MainWindow(QMainWindow):
         # --- Bottom Bar ---
         btn_layout = QHBoxLayout()
         
-        btn_start = QPushButton("3. START TENSILE TEST")
+        btn_start = QPushButton("START TENSILE TEST")
         btn_start.setStyleSheet("background-color: lightgreen; height: 50px; font-weight: bold;")
         btn_start.clicked.connect(self.show_safety_popup)
         
-        btn_stop = QPushButton("EMERGENCY STOP")
+        btn_stop = QPushButton("STOP Test")
         btn_stop.setStyleSheet("background-color: salmon; height: 50px; font-weight: bold;")
         btn_stop.clicked.connect(lambda: self.worker.send_command("STOP"))
         
-        btn_reset = QPushButton("RESET")
+        btn_reset = QPushButton("Measurement Data")
         btn_reset.setStyleSheet("height: 50px;")
-        btn_reset.clicked.connect(lambda: self.worker.send_command("RESET"))
+        btn_reset.clicked.connect(lambda: self.worker.send_command("Measurement Data"))
         
         btn_export = QPushButton("Export Data")
         btn_export.setStyleSheet("background-color: lightblue; height: 50px;")
@@ -349,9 +349,87 @@ class MainWindow(QMainWindow):
         # Show the popup and wait for user response
         popup.exec_()
         if popup.clickedButton() == btn_confirm:
-            self.start_measurement()
+            self.show_reference_popup()
+
+    def show_reference_popup(self):
+        # Create referencing popup
+        popup = QMessageBox(self)
+        popup.setWindowTitle("Motor Referencing")
+        popup.setIcon(QMessageBox.Information)
+
+        # Display message
+        popup.setText("Motor run in reference (Zero) position.")
+
+        # Add buttons
+        btn_start = popup.addButton("Start Referencing", QMessageBox.AcceptRole)
+        popup.addButton("Cancel", QMessageBox.RejectRole)
+
+        # Show popup
+        popup.exec_()
+        
+        if popup.clickedButton() == btn_start:
+            self.worker.send_command("HOMING") # Sendet den Befehl Homing über serielle Verbindung an Microcontroller
+
+    def show_insert_specimen_popup(self):
+        # Create information popup
+        popup = QMessageBox(self)
+        popup.setWindowTitle("Insert Specimen")
+        popup.setIcon(QMessageBox.Information)
+
+        popup.setText(
+            "Reference position reached!\n\n"
+            "Please insert the specimen into the testing system and ensure it is positioned correctly.\n\n"
+        )
+        # Add buttons
+        btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
+        popup.addButton("Cancel", QMessageBox.RejectRole)
+
+        # Show the popup and wait for user response
+        popup.exec_()
+        if popup.clickedButton() == btn_confirm:
+            self.show_reference_popup()
+
+    def show_startup_popup(self):
+        # Create information popup
+        popup = QMessageBox(self)
+        popup.setWindowTitle("Start Tensile Test")
+        popup.setIcon(QMessageBox.Information)
+
+        popup.setText(
+            "Specimen is inserted\n\n"
+            "Hands are out of the testing area\n\n"
+            "Start Tensile Test\n\n"
+        )
+        # Add buttons
+        btn_start= popup.addButton("Start Test", QMessageBox.AcceptRole)
+        popup.addButton("Cancel", QMessageBox.RejectRole)
+
+        # Show the popup and wait for user response
+        popup.exec_()
+        if popup.clickedButton() == btn_start:
+            self.start_measurement # Schnittstelle zu Micocontroller
+
+    def show_remvoe_specimen_popup(self):
+        # Create information popup
+        popup = QMessageBox(self)
+        popup.setWindowTitle("Remove Specimen")
+        popup.setIcon(QMessageBox.Information)
+    
+        popup.setText(
+            "Motor reached initional position again\n\n"
+            "Please remove the specimen out of the testing system\n\n"
+        )
+        # Add buttons
+        btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
+        popup.addButton("Cancel", QMessageBox.RejectRole)
+    
+        # Show the popup and wait for user response
+        #popup.exec_()
+        #if popup.clickedButton() == btn_confirm:
+        #   self.
 
 
+        
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
