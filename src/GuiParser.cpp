@@ -8,6 +8,7 @@ GuiParser::GuiParser() {
     cmd_reset = false;
     jog_fwd = false;
     jog_rev = false;
+    tare = true; //-bic: tarieren beim start
     pull_back_time_ms = 5000;
     rx_index = 0;
     jog_speed = 1.0f;
@@ -26,11 +27,14 @@ void GuiParser::parse_command() {
     } 
     else if (strncmp(rx_buffer, "JOG_REV", 7) == 0) {
         jog_rev = true;
-    } 
+    }
     else if (strncmp(rx_buffer, "JOG_STOP", 8) == 0) {
         jog_fwd = false;
         jog_rev = false;
     } 
+    else if (strncmp(rx_buffer, "TARE", 4) == 0) {
+        tare = true;
+    }
     else if (strncmp(rx_buffer, "TIME:", 5) == 0) {
         pull_back_time_ms = atoi(rx_buffer + 5);
         printf("Neue Zugzeit: %lu ms\n", pull_back_time_ms);

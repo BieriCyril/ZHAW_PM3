@@ -116,6 +116,11 @@ int main()
                 else {
                     stepper_M1.setVelocity(0.0f); // Stillstand wenn keine Tasten gedrückt
                 }
+                if (gui.tare && (last_raw_force != 0)) {
+                    tare_offset = last_raw_force; //- bic: tare offset setzen
+                    gui.tare = false; //- bic: reset tare command
+                    printf("Tara gesetzt: %d\n", tare_offset);
+                }
                 break;
             }
             
