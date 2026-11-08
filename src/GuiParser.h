@@ -8,11 +8,12 @@ public:
     // Konstruktor
     GuiParser();
 
-    // Die Variablen, die von der GUI gesteuert werden
+    // Die Variablen, die vom GUI gesteuert werden
     bool cmd_start;
     bool cmd_reset;
     bool jog_fwd;
     bool jog_rev;
+    bool tare;
     uint32_t pull_back_time_ms;
     float jog_speed;
     float pull_back_speed;
