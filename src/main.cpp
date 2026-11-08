@@ -15,7 +15,7 @@
 // --- Hardware Objekte ---
 Stepper stepper_M1(PB_14, PC_4);
 
-// Emergency Stop Button (z.B. an Pin PC_6) - PullUp (0 = gedrückt, 1 = in Ordnung)
+// Emergency Stop Button (z.B. an Pin xx) - PullUp (0 = gedrückt, 1 = in Ordnung)
 DigitalIn e_stop_button(PC_6); 
 
 // HX711 Pins
@@ -126,7 +126,7 @@ int main()
             
             case MachineStep::ST_PULL_BACK: {
                 // Motor zieht mit voreingestellter Geschwindigkeit
-                stepper_M1.setVelocity(gui.pull_back_time_ms);
+                stepper_M1.setVelocity(gui.pull_back_speed); //- pull back speed
                 
                 // Prüfen, ob die geforderte Zeit abgelaufen ist
                 uint32_t elapsed_pull_time = duration_cast<milliseconds>(pull_back_timer.elapsed_time()).count();

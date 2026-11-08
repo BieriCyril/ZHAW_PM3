@@ -39,6 +39,10 @@ void GuiParser::parse_command() {
         pull_back_time_ms = atoi(rx_buffer + 5);
         printf("Neue Zugzeit: %lu ms\n", pull_back_time_ms);
     }
+    else if (strncmp(rx_buffer, "PULL_SPEED:", 11) == 0) {
+        pull_back_speed = atof(rx_buffer + 11);
+        printf("Neue Zuggeschwindigkeit: %.2f\n", pull_back_speed);
+    }
     else if (strncmp(rx_buffer, "JOG_SPD:", 8) == 0) {
     jog_speed = atof(rx_buffer + 8);
     printf("Neue Jog-Geschwindigkeit: %.2f\n", jog_speed);
