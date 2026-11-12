@@ -71,6 +71,7 @@ class MeasurementWorker(QThread):
         except Exception as e:
             self.state_update.emit(f"ERROR: {e}")
 
+
     def send_command(self, cmd_string):
         if self.serial_stream and self.serial_stream.SerialPort.is_open:
             self.serial_stream.SerialPort.write(f"{cmd_string}\n".encode('utf-8'))
@@ -95,6 +96,21 @@ class MainWindow(QMainWindow):
         self.worker.start()
 
         self.init_ui()
+
+
+    def send_machine_parameters(self):
+        try:
+            pull_time_ms = int(float(self.input_pull_time.text().replace(',', '.')))
+            pull_speed = float(self.input_pull_speed.text().replace(',', '.'))
+            jog_speed = float(self.input_jog_speed.text().replace(',', '.'))
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Please enter valid numeric values for time and speeds.")
+            return False
+
+        self.worker.send_command(f"TIME:{pull_time_ms}")
+        self.worker.send_command(f"PULL_SPEED:{pull_speed}")
+        self.worker.send_command(f"JOG_SPD:{jog_speed}")
+        return True
 
     def init_ui(self):
         main_widget = QWidget()
@@ -152,6 +168,21 @@ class MainWindow(QMainWindow):
         param_layout.addRow("Thickness (mm):", self.input_thickness)
         param_group.setLayout(param_layout)
         left_col.addWidget(param_group)
+
+        # Machine Parameters (TIME, PULL_SPEED, JOG_SPD)
+        mach_param_group = QGroupBox("Test & Motor Parameters")
+        mach_param_layout = QFormLayout()
+        self.input_pull_time = QLineEdit("5000")
+        self.input_pull_speed = QLineEdit("-2.0")
+        self.input_jog_speed = QLineEdit("1.0")
+        btn_send_params = QPushButton("Apply Parameters")
+        btn_send_params.clicked.connect(self.send_machine_parameters)
+        mach_param_layout.addRow("Pull Time (ms):", self.input_pull_time)
+        mach_param_layout.addRow("Pull Speed:", self.input_pull_speed)
+        mach_param_layout.addRow("Jog Speed:", self.input_jog_speed)
+        mach_param_layout.addRow(btn_send_params)
+        mach_param_group.setLayout(mach_param_layout)
+        left_col.addWidget(mach_param_group)
 
         # Machine Control
         ctrl_group = QGroupBox("Machine Control")
