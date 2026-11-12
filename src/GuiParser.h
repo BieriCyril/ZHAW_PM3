@@ -17,6 +17,7 @@ public:
     uint32_t pull_back_time_ms;
     float jog_speed;
     float pull_back_speed;
+    float calib_factor;
 
     // Hauptfunktion, die in der Schleife aufgerufen wird
     void check_serial();

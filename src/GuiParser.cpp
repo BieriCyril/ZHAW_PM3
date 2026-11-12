@@ -66,6 +66,10 @@ void GuiParser::parse_command() {
         jog_speed = atof(rx_buffer + 8);
         printf("Neue Jog-Geschwindigkeit: %.2f\n", jog_speed);
     }
+    else if (strncmp(rx_buffer, "CALIB:", 6) == 0) {
+        calib_factor = atof(rx_buffer + 6);
+        printf("Neuer Kalibrierfaktor: %.2f\n", calib_factor);
+    }
     else {
         printf("Unbekannter Befehl: %s\n", rx_buffer);
     }

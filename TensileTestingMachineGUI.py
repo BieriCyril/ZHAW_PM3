@@ -103,6 +103,7 @@ class MainWindow(QMainWindow):
             pull_time_ms = int(float(self.input_pull_time.text().replace(',', '.')))
             pull_speed = float(self.input_pull_speed.text().replace(',', '.'))
             jog_speed = float(self.input_jog_speed.text().replace(',', '.'))
+            calib_factor = float(self.input_calib.text().replace(',', '.'))
         except ValueError:
             QMessageBox.warning(self, "Error", "Please enter valid numeric values for time and speeds.")
             return False
@@ -110,6 +111,7 @@ class MainWindow(QMainWindow):
         self.worker.send_command(f"TIME:{pull_time_ms}")
         self.worker.send_command(f"PULL_SPEED:{pull_speed}")
         self.worker.send_command(f"JOG_SPD:{jog_speed}")
+        self.worker.send_command(f"CALIB:{calib_factor}")
         return True
 
     def init_ui(self):
@@ -175,11 +177,13 @@ class MainWindow(QMainWindow):
         self.input_pull_time = QLineEdit("5000")
         self.input_pull_speed = QLineEdit("-2.0")
         self.input_jog_speed = QLineEdit("1.0")
+        self.input_calib = QLineEdit("358.0")
         btn_send_params = QPushButton("Apply Parameters")
         btn_send_params.clicked.connect(self.send_machine_parameters)
         mach_param_layout.addRow("Pull Time (ms):", self.input_pull_time)
         mach_param_layout.addRow("Pull Speed:", self.input_pull_speed)
         mach_param_layout.addRow("Jog Speed:", self.input_jog_speed)
+        mach_param_layout.addRow("Calibration Factor:", self.input_calib)
         mach_param_layout.addRow(btn_send_params)
         mach_param_group.setLayout(mach_param_layout)
         left_col.addWidget(mach_param_group)

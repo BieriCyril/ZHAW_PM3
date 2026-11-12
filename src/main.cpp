@@ -66,7 +66,7 @@ int main()
 
 
     // Konstanten
-    const float calibration_factor = 358.0f; 
+
     const int printcycle = 200; // Ausgabe alle 200ms
 
     // Timer starten
@@ -87,6 +87,8 @@ int main()
         float time_s = duration_cast<milliseconds>(total_timer.elapsed_time()).count() / 1000.0f;
         int32_t raw_force = loadcell.read(); //- read loadcell
         
+
+        float calibration_factor = gui.calib_factor; 
         if (raw_force != 0) {
             last_raw_force = raw_force;
             last_force_N = (raw_force - tare_offset) / calibration_factor;
