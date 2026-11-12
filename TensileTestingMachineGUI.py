@@ -8,7 +8,7 @@ from datetime import datetime
 import serial.tools.list_ports
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QGroupBox, 
-                             QFileDialog, QMessageBox, QLineEdit, QFormLayout, QComboBox)
+                             QFileDialog, QMessageBox, QLineEdit, QFormLayout, QComboBox, QTextEdit)
 from PyQt5.QtCore import QThread, pyqtSignal
 import pyqtgraph as pg
 
@@ -19,6 +19,7 @@ class MeasurementWorker(QThread):
     connection_status = pyqtSignal(bool, str)
     state_update = pyqtSignal(str)
     result_ready = pyqtSignal(object)
+    log_message = pyqtSignal(str)
     
     def __init__(self, baudrate):
         super().__init__()
@@ -28,7 +29,16 @@ class MeasurementWorker(QThread):
 
     def run(self):
         while self.is_running:
-            time.sleep(0.1)
+            if self.serial_stream and self.serial_stream.SerialPort.is_open:
+                try:
+                    # Prüfen, ob Daten im Puffer liegen und zeilenweise lesen
+                    if self.serial_stream.SerialPort.in_waiting > 0:
+                        line = self.serial_stream.SerialPort.readline().decode('utf-8', errors='ignore').strip()
+                        if line:
+                            self.log_message.emit(line)
+                except Exception:
+                    pass
+            time.sleep(0.05)
 
     def connect_port(self, port):
         try:
@@ -91,6 +101,7 @@ class MainWindow(QMainWindow):
 
         self.worker = MeasurementWorker(self.baudrate)
         self.worker.connection_status.connect(self.on_connection_status)
+        self.worker.log_message.connect(self.append_log)
         self.worker.state_update.connect(self.on_state_update)
         self.worker.result_ready.connect(self.on_result_ready)
         self.worker.start()
@@ -113,6 +124,10 @@ class MainWindow(QMainWindow):
         self.worker.send_command(f"JOG_SPD:{jog_speed}")
         self.worker.send_command(f"CALIB:{calib_factor}")
         return True
+
+    def append_log(self, text):
+        self.text_log.append(text)
+        self.text_log.verticalScrollBar().setValue(self.text_log.verticalScrollBar().maximum())
 
     def init_ui(self):
         main_widget = QWidget()
@@ -151,6 +166,26 @@ class MainWindow(QMainWindow):
         conn_layout.addWidget(self.lbl_state)
         connection_group.setLayout(conn_layout)
         main_layout.addWidget(connection_group)
+
+
+
+        # --- STM32 Empfangs-Monitor ---
+        log_group = QGroupBox("STM32 Received Data (Serial Monitor)")
+        log_layout = QVBoxLayout()
+        
+        self.text_log = QTextEdit()
+        self.text_log.setReadOnly(True)
+        self.text_log.setMaximumHeight(150)
+        self.text_log.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: Consolas; font-size: 11px;")
+        
+        btn_clear_log = QPushButton("Clear Monitor")
+        btn_clear_log.clicked.connect(self.text_log.clear)
+        
+        log_layout.addWidget(self.text_log)
+        log_layout.addWidget(btn_clear_log)
+        log_group.setLayout(log_layout)
+        
+        main_layout.addWidget(log_group)
 
         # --- Middle Area ---
         mid_layout = QHBoxLayout()
@@ -192,7 +227,7 @@ class MainWindow(QMainWindow):
         ctrl_group = QGroupBox("Machine Control")
         ctrl_layout = QVBoxLayout()
         
-        btn_ref = QPushButton("1. Homing (Reference Run)")
+        btn_ref = QPushButton("1. Homing (Reference Run (future...))")
         btn_ref.setStyleSheet("background-color: #f0e68c;")
         btn_ref.clicked.connect(lambda: self.worker.send_command("HOMING"))
         
@@ -405,7 +440,7 @@ class MainWindow(QMainWindow):
         popup.exec_()
         
         if popup.clickedButton() == btn_start:
-            self.worker.send_command("HOMING") # Sendet den Befehl Homing über serielle Verbindung an Microcontroller
+            self.worker.send_command("START") # Sendet den Befehl START über serielle Verbindung an Microcontroller
 
     def show_insert_specimen_popup(self):
         # Create information popup
