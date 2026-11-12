@@ -31,19 +31,24 @@ void GuiParser::parse_command() {
 
     if (strncmp(rx_buffer, "START", 5) == 0) {
         cmd_start = true;
+        printf("Befehl erkannt: START\n");
     } 
     else if (strncmp(rx_buffer, "RESET", 5) == 0) {
         cmd_reset = true;
+        printf("Befehl erkannt: RESET\n");
     } 
     else if (strncmp(rx_buffer, "JOG_FWD", 7) == 0) {
         jog_fwd = true;
+        printf("Befehl erkannt: JOG_FWD\n");
     } 
     else if (strncmp(rx_buffer, "JOG_REV", 7) == 0) {
         jog_rev = true;
+        printf("Befehl erkannt: JOG_REV\n");
     }
     else if (strncmp(rx_buffer, "JOG_STOP", 8) == 0) {
         jog_fwd = false;
         jog_rev = false;
+        printf("Befehl erkannt: JOG_STOP\n");
     } 
     else if (strncmp(rx_buffer, "TARE", 4) == 0) {
         tare = true;
