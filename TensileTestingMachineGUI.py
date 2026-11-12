@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Tensile Testing Machine - PES Board")
         self.resize(1150, 800)
 
-        self.baudrate = int(2e6)
+        self.baudrate = int(115200)
         self.messdaten = None
 
         self.worker = MeasurementWorker(self.baudrate)

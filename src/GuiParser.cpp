@@ -54,6 +54,11 @@ void GuiParser::parse_command() {
 
 void GuiParser::check_serial() {
     FileHandle *console = mbed_file_handle(STDIN_FILENO);
+
+    if (console == nullptr) {
+        return; 
+    }
+    
     char c;
     
     while (console->readable()) {
