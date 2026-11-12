@@ -161,18 +161,20 @@ class MainWindow(QMainWindow):
         btn_ref.setStyleSheet("background-color: #f0e68c;")
         btn_ref.clicked.connect(lambda: self.worker.send_command("HOMING"))
         
-        btn_up = QPushButton("Motor UP (Jog)")
-        btn_up.clicked.connect(lambda: self.worker.send_command("JOG_UP"))
+        btn_fwd = QPushButton("Motor FWD (Jog)")
+        btn_fwd.clicked.connect(lambda: self.worker.send_command("JOG_FWD"))
+        btn_fwd.released.connect(lambda: self.worker.send_command("JOG_STOP"))
         
-        btn_down = QPushButton("Motor DOWN (Jog)")
-        btn_down.clicked.connect(lambda: self.worker.send_command("JOG_DOWN"))
+        btn_rev = QPushButton("Motor REV (Jog)")
+        btn_rev.clicked.connect(lambda: self.worker.send_command("JOG_REV"))
+        btn_rev.released.connect(lambda: self.worker.send_command("JOG_STOP"))
         
         btn_tare = QPushButton("2. TARE (Zero Force/Displacement)")
         btn_tare.clicked.connect(lambda: self.worker.send_command("TARE"))
         
         ctrl_layout.addWidget(btn_ref)
-        ctrl_layout.addWidget(btn_up)
-        ctrl_layout.addWidget(btn_down)
+        ctrl_layout.addWidget(btn_fwd)
+        ctrl_layout.addWidget(btn_rev)
         ctrl_layout.addWidget(btn_tare)
         ctrl_group.setLayout(ctrl_layout)
         left_col.addWidget(ctrl_group)
