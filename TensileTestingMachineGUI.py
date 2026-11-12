@@ -162,11 +162,11 @@ class MainWindow(QMainWindow):
         btn_ref.clicked.connect(lambda: self.worker.send_command("HOMING"))
         
         btn_fwd = QPushButton("Motor FWD (Jog)")
-        btn_fwd.clicked.connect(lambda: self.worker.send_command("JOG_FWD"))
+        btn_fwd.pressed.connect(lambda: self.worker.send_command("JOG_FWD"))
         btn_fwd.released.connect(lambda: self.worker.send_command("JOG_STOP"))
         
         btn_rev = QPushButton("Motor REV (Jog)")
-        btn_rev.clicked.connect(lambda: self.worker.send_command("JOG_REV"))
+        btn_rev.pressed.connect(lambda: self.worker.send_command("JOG_REV"))
         btn_rev.released.connect(lambda: self.worker.send_command("JOG_STOP"))
         
         btn_tare = QPushButton("2. TARE (Zero Force/Displacement)")
@@ -205,7 +205,7 @@ class MainWindow(QMainWindow):
         
         btn_reset = QPushButton("Measurement Data")
         btn_reset.setStyleSheet("height: 50px;")
-        btn_reset.clicked.connect(lambda: self.worker.send_command("Measurement Data"))
+        btn_reset.clicked.connect(lambda: self.worker.send_command("RESET"))
         
         btn_export = QPushButton("Export Data")
         btn_export.setStyleSheet("background-color: lightblue; height: 50px;")
