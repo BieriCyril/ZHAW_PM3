@@ -12,26 +12,7 @@
 #include "HX711.h"
 #include "GuiParser.h"
 
-// --- Hardware Objekte ---
-Stepper stepper_M1(PB_14, PC_4);
 
-// Emergency Stop Button (z.B. an Pin xx) - PullUp (0 = gedrückt, 1 = in Ordnung)
-DigitalIn e_stop_button(PC_6); 
-
-// HX711 Pins
-DigitalOut hx711_sck(PB_4); 
-DigitalIn  hx711_dt(PC_5);  
-
-// Das GUI-Objekt ---
-GuiParser gui;
-
-// --- Globale Variablen für Kraftmessung ---
-volatile int32_t tare_offset = 95900; 
-volatile int32_t last_raw_force = 0;
-volatile float last_force_N = 0.0f;
-
-// --- Funktion zum Auslesen des HX711, construct object
-HX711 loadcell(PB_4, PC_5);
 
 // --- ZUSTANDSMODELL (STATE MACHINE) ---
 enum MachineStep { 
@@ -43,6 +24,33 @@ enum MachineStep {
 
 int main()
 {
+    
+    printf("Anfang\n");
+
+    
+    // --- Hardware Objekte ---
+    Stepper stepper_M1(PB_14, PC_4);
+    
+    // Emergency Stop Button (z.B. an Pin xx) - PullUp (0 = gedrückt, 1 = in Ordnung)
+    DigitalIn e_stop_button(PC_6); 
+    
+    // HX711 Pins
+    DigitalOut hx711_sck(PB_4); 
+    DigitalIn  hx711_dt(PC_5);  
+    
+    // Das GUI-Objekt ---
+    GuiParser gui;
+    
+    // --- Globale Variablen für Kraftmessung ---
+    volatile int32_t tare_offset = 95900; 
+    volatile int32_t last_raw_force = 0;
+    volatile float last_force_N = 0.0f;
+
+// --- Funktion zum Auslesen des HX711, construct object
+    HX711 loadcell(PB_4, PC_5);
+
+    printf("Obejkte initialisiert\n");
+
     // Hardware initialisieren
     hx711_sck.write(0);
     e_stop_button.mode(PullUp); // Not-Aus Schalter nutzt internen PullUp-Widerstand
