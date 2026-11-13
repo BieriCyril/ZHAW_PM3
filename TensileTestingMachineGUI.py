@@ -483,8 +483,9 @@ class MainWindow(QMainWindow):
         # Show popup
         popup.exec_()
         
-        #if popup.clickedButton() == btn_start:
-        #    self.worker.send_command("START") # Sendet den Befehl START über serielle Verbindung an Microcontroller
+        if popup.clickedButton() == btn_start:
+            # self.worker.send_command("HOMING") # Falls du später homing nutzt
+            self.show_insert_specimen_popup()    # <-- DAS ÖFFNET NUN DAS "INSERT SPECIMEN" FENSTER!
 
     def show_insert_specimen_popup(self):
         # Create information popup
@@ -503,7 +504,7 @@ class MainWindow(QMainWindow):
         # Show the popup and wait for user response
         popup.exec_()
         if popup.clickedButton() == btn_confirm:
-            self.show_reference_popup()
+            self.show_startup_popup()  # <-- Hier stand noch fälschlicherweise show_reference_popup!
 
     def show_startup_popup(self):
         # Create information popup
