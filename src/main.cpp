@@ -52,7 +52,7 @@ int main()
 
 
     // --- STEPPER SIMULATION ---
-    bool STEPPER_SIM_WAY = true; // Auf 'false' stellen, wenn der echte Motor wieder läuft!
+    bool STEPPER_SIM_WAY = false; // Auf 'false' stellen, wenn der echte Motor wieder läuft!
 
 // --- Funktion zum Auslesen des HX711, construct object
     HX711 loadcell(PB_4, PC_5);
