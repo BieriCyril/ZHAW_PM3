@@ -11,6 +11,7 @@ GuiParser::GuiParser() {
     jog_fwd = false;
     jog_rev = false;
     tare = true;
+    ESTOP = false;
     pull_back_time_ms = 5000;
     rx_index = 0;
     jog_speed = 1.0f;
@@ -53,6 +54,10 @@ void GuiParser::parse_command() {
     else if (strncmp(rx_buffer, "TARE", 4) == 0) {
         tare = true;
         printf("Befehl erkannt: TARE\n");
+    }
+    else if (strncmp(rx_buffer, "E-STOP", 6) == 0) {
+        ESTOP = true;
+        printf("Befehl erkannt: E-STOP\n");
     }
     else if (strncmp(rx_buffer, "TIME:", 5) == 0) {
         pull_back_time_ms = atoi(rx_buffer + 5);

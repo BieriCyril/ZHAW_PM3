@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
         conn_layout = QHBoxLayout()
         
         self.cb_ports = QComboBox()
+        self.cb_ports.view().parentWidget().setMinimumWidth(200)
         self.refresh_ports()
         
         btn_refresh = QPushButton("↻ Scan Ports")
@@ -269,11 +270,11 @@ class MainWindow(QMainWindow):
         btn_start.setStyleSheet("background-color: lightgreen; height: 50px; font-weight: bold;")
         btn_start.clicked.connect(self.show_safety_popup)
         
-        btn_stop = QPushButton("STOP Test")
+        btn_stop = QPushButton("Schnellstop (NOT HALT!)")
         btn_stop.setStyleSheet("background-color: salmon; height: 50px; font-weight: bold;")
-        btn_stop.clicked.connect(lambda: self.worker.send_command("STOP"))
+        btn_stop.clicked.connect(lambda: self.worker.send_command("E-STOP"))
         
-        btn_reset = QPushButton("Measurement Data")
+        btn_reset = QPushButton("Measurement Data / RESET")
         btn_reset.setStyleSheet("height: 50px;")
         btn_reset.clicked.connect(lambda: self.worker.send_command("RESET"))
         

@@ -30,17 +30,17 @@ int main()
     
     // --- Hardware Objekte ---
     Stepper stepper_M1(PB_14, PC_4);
-    
+
     // Emergency Stop Button (z.B. an Pin xx) - PullUp (0 = gedrückt, 1 = in Ordnung)
     DigitalIn e_stop_button(PC_6); 
-    
+
     // HX711 Pins
     DigitalOut hx711_sck(PB_4); 
     DigitalIn  hx711_dt(PC_5);  
-    
+
     // Das GUI-Objekt ---
     GuiParser gui;
-    
+
     // --- Globale Variablen für Kraftmessung ---
     volatile int32_t tare_offset = 95900; 
     volatile int32_t last_raw_force = 0;
@@ -100,6 +100,14 @@ int main()
             machine_step = MachineStep::ST_FAULT;
             stepper_M1.setVelocity(0.0f);
             printf("NOT-AUS GEDRUECKT! Wechsel in ST_FAULT\n");
+        }
+
+                // Angenommen: Wenn Pin auf 0 gezogen wird (GND), ist Not-Aus gedrückt
+        if (gui.ESTOP && machine_step != MachineStep::ST_FAULT) {
+            machine_step = MachineStep::ST_FAULT;
+            stepper_M1.setVelocity(0.0f);
+            printf("NOT-HALT VON GUI GEDRUECKT! Wechsel in ST_FAULT\n");
+            gui.ESTOP = false; // Reset the command after handling
         }
 
         // STATE MACHINE LOGIK
