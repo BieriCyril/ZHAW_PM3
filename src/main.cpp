@@ -45,6 +45,8 @@ int main()
     volatile int32_t tare_offset = 95900; 
     volatile int32_t last_raw_force = 0;
     volatile float last_force_N = 0.0f;
+    float calibration_factor = 358.0f; //- Default calibration factor, can be adjusted via GUI
+    const float spindl_steigung_mm = 1.0f; //-m6
 
 // --- Funktion zum Auslesen des HX711, construct object
     HX711 loadcell(PB_4, PC_5);
@@ -88,7 +90,7 @@ int main()
         int32_t raw_force = loadcell.read(); //- read loadcell
         
 
-        float calibration_factor = gui.calib_factor; 
+        calibration_factor = gui.calib_factor; 
         if (raw_force != 0) {
             last_raw_force = raw_force;
             last_force_N = (raw_force - tare_offset) / calibration_factor;
@@ -192,9 +194,17 @@ int main()
         // Status LED
         user_led = !user_led;
 
-        // 5. Telemetrie-Daten via Serial ausgeben (für die GUI)
+
+        // --- Wegberechnung (Displacement) ---
+        
+        // Weg = Anzahl Umdrehungen * Weg pro Umdrehung
+        // (Angenommen dein Stepper-Objekt heißt 'stepper_M1')
+        float displacement_mm = stepper_M1.getRotation() * spindl_steigung_mm; //- displacement in mm
+
+        //Telemetrie-Daten via Serial ausgeben (für die GUI)
         if (print_timer.read_ms() >= printcycle) {
-            printf("%.3f;%.3f;%.3f\n", time_s, last_force_N, last_raw_force);
+            printf("State: %d\n", machine_step);
+            printf("%.3f;%.3f;%.3f\n", time_s, last_force_N, displacement_mm);
             print_timer.reset();
         }
 

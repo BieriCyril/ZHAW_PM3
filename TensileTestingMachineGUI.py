@@ -20,6 +20,7 @@ class MeasurementWorker(QThread):
     state_update = pyqtSignal(str)
     result_ready = pyqtSignal(object)
     log_message = pyqtSignal(str)
+    live_data = pyqtSignal(float, float, float)
     
     def __init__(self, baudrate):
         super().__init__()
@@ -32,21 +33,21 @@ class MeasurementWorker(QThread):
             if self.serial_stream and self.serial_stream.SerialPort.is_open:
                 try:
                     if self.serial_stream.SerialPort.in_waiting > 0:
-                        # 1. Einmaliges Lesen in eine Variable
                         line = self.serial_stream.SerialPort.readline().decode('utf-8', errors='ignore').strip()
-                        
                         if line:
-                            # 2. Zeile IMMER im Monitor anzeigen (als Log)
-                            self.log_message.emit(line)
+                            self.log_message.emit(line) # Immer im Monitor anzeigen
                             
-                            # 3. Ist es ein Messwert? (z.B. Format "Zeit;Kraft;Weg")
-                            # Prüfen, ob ein Semikolon drin ist und kein "State" Text
+                            # Wenn es eine Datenzeile ist (enthält Semikolon, kein Text)
                             if ";" in line and "State" not in line:
-                                # Leite diese Datenzeile an das GUI/den Graphen weiter
-                                self.data_received.emit(line) 
+                                parts = line.split(";")
+                                if len(parts) == 3:
+                                    t = float(parts[0])
+                                    f = float(parts[1])
+                                    d = float(parts[2])
+                                    self.live_data.emit(t, f, d) # An den Graphen senden
                 except Exception:
                     pass
-            time.sleep(0.01) # Etwas schneller pollen bei vielen Daten
+            time.sleep(0.01)
 
     def connect_port(self, port):
         try:
@@ -107,11 +108,16 @@ class MainWindow(QMainWindow):
         self.baudrate = int(115200)
         self.messdaten = None
 
+
+        self.live_strain = []
+        self.live_stress = []
+
         self.worker = MeasurementWorker(self.baudrate)
         self.worker.connection_status.connect(self.on_connection_status)
         self.worker.log_message.connect(self.append_log)
         self.worker.state_update.connect(self.on_state_update)
         self.worker.result_ready.connect(self.on_result_ready)
+        self.worker.live_data.connect(self.update_live_plot)
         self.worker.start()
 
         self.init_ui()
@@ -373,9 +379,17 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Success", f"Test completed! {len(time_array)} data points calculated.")
 
     def start_measurement(self):
+        if not self.send_machine_parameters():
+            return
+        
+        # Listen für den neuen Test leeren
+        self.live_strain.clear()
+        self.live_stress.clear()
         self.plot_line.setData([], [])
+        
         self.messdaten = None
-        self.worker.start_measurement()
+        self.worker.send_command("START") # Start-Befehl an STM32
+        self.worker.start_measurement()   # Startet den Worker-Thread (deinen Code von oben)
 
     def export_data(self):
         if self.messdaten is None:
@@ -410,6 +424,27 @@ class MainWindow(QMainWindow):
                     ])
                     
             QMessageBox.information(self, "Success", "Data successfully exported!")
+
+    def update_live_plot(self, t, f, d):
+        try:
+            # Geometrie auslesen
+            l0 = float(self.input_length.text().replace(',', '.'))
+            width = float(self.input_width.text().replace(',', '.'))
+            thickness = float(self.input_thickness.text().replace(',', '.'))
+            
+            # Spannung und Dehnung berechnen
+            area = width * thickness
+            stress = f / area
+            strain = (d / l0) * 100
+            
+            # An Listen anhängen
+            self.live_strain.append(strain)
+            self.live_stress.append(stress)
+            
+            # Graphen aktualisieren
+            self.plot_line.setData(self.live_strain, self.live_stress)
+        except ValueError:
+            pass # Ignorieren, falls Benutzereingaben ungültig sind
 
     def closeEvent(self, event):
         self.worker.stop()
@@ -448,8 +483,8 @@ class MainWindow(QMainWindow):
         # Show popup
         popup.exec_()
         
-        if popup.clickedButton() == btn_start:
-            self.worker.send_command("START") # Sendet den Befehl START über serielle Verbindung an Microcontroller
+        #if popup.clickedButton() == btn_start:
+        #    self.worker.send_command("START") # Sendet den Befehl START über serielle Verbindung an Microcontroller
 
     def show_insert_specimen_popup(self):
         # Create information popup
@@ -488,7 +523,7 @@ class MainWindow(QMainWindow):
         # Show the popup and wait for user response
         popup.exec_()
         if popup.clickedButton() == btn_start:
-            self.start_measurement # Schnittstelle zu Micocontroller
+            self.start_measurement() # Schnittstelle zu Micocontroller
 
     def show_remvoe_specimen_popup(self):
         # Create information popup
@@ -508,6 +543,8 @@ class MainWindow(QMainWindow):
         #popup.exec_()
         #if popup.clickedButton() == btn_confirm:
         #   self.
+
+
 
 
         
