@@ -194,8 +194,7 @@ int main()
 
         // 5. Telemetrie-Daten via Serial ausgeben (für die GUI)
         if (print_timer.read_ms() >= printcycle) {
-            printf("State: %d | Zeit: %.3f s | Kraft: %.3f N | Rohwert: %d\n", 
-                   machine_step, time_s, last_force_N, (int)last_raw_force);
+            printf("%.3f;%.3f;%.3f\n", time_s, last_force_N, last_raw_force);
             print_timer.reset();
         }
 

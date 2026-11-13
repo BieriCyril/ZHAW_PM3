@@ -31,14 +31,22 @@ class MeasurementWorker(QThread):
         while self.is_running:
             if self.serial_stream and self.serial_stream.SerialPort.is_open:
                 try:
-                    # Prüfen, ob Daten im Puffer liegen und zeilenweise lesen
                     if self.serial_stream.SerialPort.in_waiting > 0:
+                        # 1. Einmaliges Lesen in eine Variable
                         line = self.serial_stream.SerialPort.readline().decode('utf-8', errors='ignore').strip()
+                        
                         if line:
+                            # 2. Zeile IMMER im Monitor anzeigen (als Log)
                             self.log_message.emit(line)
+                            
+                            # 3. Ist es ein Messwert? (z.B. Format "Zeit;Kraft;Weg")
+                            # Prüfen, ob ein Semikolon drin ist und kein "State" Text
+                            if ";" in line and "State" not in line:
+                                # Leite diese Datenzeile an das GUI/den Graphen weiter
+                                self.data_received.emit(line) 
                 except Exception:
                     pass
-            time.sleep(0.05)
+            time.sleep(0.01) # Etwas schneller pollen bei vielen Daten
 
     def connect_port(self, port):
         try:
