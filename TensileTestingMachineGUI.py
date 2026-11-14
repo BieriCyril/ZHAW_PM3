@@ -9,11 +9,13 @@ import serial.tools.list_ports
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QGroupBox, 
                              QFileDialog, QMessageBox, QLineEdit, QFormLayout, QComboBox, QTextEdit)
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 import pyqtgraph as pg
 
 # Import the SerialStream class
 from SerialStream import SerialStream
+
+import threading
 
 class MeasurementWorker(QThread):
     connection_status = pyqtSignal(bool, str)
@@ -99,6 +101,14 @@ class MeasurementWorker(QThread):
         self.is_running = False
         self.disconnect_port()
 
+    def pop_buffers(self):
+        with self.lock:
+            logs = self.log_buffer[:]
+            points = self.plot_buffer[:]
+            self.log_buffer.clear()
+            self.plot_buffer.clear()
+        return logs, points
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -122,6 +132,11 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
 
+
+# UI-Refresh auf 25 FPS (alle 40 ms) drosseln für maximale Performance
+        self.ui_timer = QTimer(self)
+        self.ui_timer.timeout.connect(self.update_ui_batch)
+        self.ui_timer.start(40)
 
     def send_machine_parameters(self):
         try:
@@ -191,6 +206,7 @@ class MainWindow(QMainWindow):
         self.text_log = QTextEdit()
         self.text_log.setReadOnly(True)
         self.text_log.setMaximumHeight(150)
+        self.text_log.document().setMaximumBlockCount(500)  # Begrenzt Verlauf auf 500 Zeilen
         self.text_log.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: Consolas; font-size: 11px;")
         
         btn_clear_log = QPushButton("Clear Monitor")
@@ -378,6 +394,29 @@ class MainWindow(QMainWindow):
         self.plot_line.setData(strain_pct, stress_MPa)
         QMessageBox.information(self, "Success", f"Test completed! {len(time_array)} data points calculated.")
 
+    def update_ui_batch(self):  
+        logs, points = self.worker.pop_buffers()
+
+        if logs:
+            self.text_log.append("\n".join(logs))
+            self.text_log.verticalScrollBar().setValue(self.text_log.verticalScrollBar().maximum())
+
+        if points:
+            try:
+                l0 = float(self.input_length.text().replace(',', '.'))
+                width = float(self.input_width.text().replace(',', '.'))
+                thickness = float(self.input_thickness.text().replace(',', '.'))
+                area = width * thickness
+
+                if area > 0 and l0 > 0:
+                    for _, f, d in points:
+                        self.live_stress.append(f / area)
+                        self.live_strain.append((d / l0) * 100.0)
+                    self.plot_line.setData(self.live_strain, self.live_stress)
+            except ValueError:
+                pass
+
+
     def start_measurement(self):
         if not self.send_machine_parameters():
             return
@@ -389,7 +428,8 @@ class MainWindow(QMainWindow):
         
         self.messdaten = None
         self.worker.send_command("START") # Start-Befehl an STM32
-        self.worker.start_measurement()   # Startet den Worker-Thread (deinen Code von oben)
+        threading.Thread(target=self.worker.start_measurement, daemon=True).start()
+
 
     def export_data(self):
         if self.messdaten is None:
