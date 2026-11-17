@@ -3,103 +3,80 @@
 import sys
 import csv
 import time
+import threading
 import numpy as np
 from datetime import datetime
+import serial
 import serial.tools.list_ports
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QLabel, QGroupBox, 
-                             QFileDialog, QMessageBox, QLineEdit, QFormLayout, QComboBox, QTextEdit)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QLabel, QGroupBox,
+                             QFileDialog, QMessageBox, QLineEdit, QFormLayout,
+                             QComboBox, QTextEdit)
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 import pyqtgraph as pg
 
-# Import the SerialStream class
-from SerialStream import SerialStream
-
-import threading
 
 class MeasurementWorker(QThread):
     connection_status = pyqtSignal(bool, str)
     state_update = pyqtSignal(str)
-    result_ready = pyqtSignal(object)
-    log_message = pyqtSignal(str)
-    live_data = pyqtSignal(float, float, float)
-    
+    measurement_finished = pyqtSignal(list)
+
     def __init__(self, baudrate):
         super().__init__()
         self.baudrate = baudrate
         self.is_running = True
-        self.serial_stream = None
+        self.ser = None
+
+        self.lock = threading.Lock()
+        self.log_buffer = []
+        self.plot_buffer = []
+        self.recorded_data = []
+
+        self.is_recording = False
+        self.saw_pull_state = False
 
     def run(self):
         while self.is_running:
-            if self.serial_stream and self.serial_stream.SerialPort.is_open:
+            if self.ser and self.ser.is_open:
                 try:
-                    if self.serial_stream.SerialPort.in_waiting > 0:
-                        line = self.serial_stream.SerialPort.readline().decode('utf-8', errors='ignore').strip()
-                        if line:
-                            self.log_message.emit(line) # Immer im Monitor anzeigen
-                            
-                            # Wenn es eine Datenzeile ist (enthält Semikolon, kein Text)
+                    if self.ser.in_waiting > 0:
+                        line = self.ser.readline().decode('utf-8', errors='ignore').strip()
+                        if not line:
+                            continue
+
+                        finished_snapshot = None
+                        finish_status = "MEASUREMENT FINISHED"
+
+                        with self.lock:
+                            self.log_buffer.append(line)
+
+                            if "State: 1" in line:
+                                self.saw_pull_state = True
+                            elif self.is_recording and self.saw_pull_state and ("State: 2" in line or "State: 3" in line):
+                                self.is_recording = False
+                                finished_snapshot = list(self.recorded_data)
+                                if "State: 3" in line:
+                                    finish_status = "FAULT / E-STOP"
+
                             if ";" in line and "State" not in line:
                                 parts = line.split(";")
                                 if len(parts) == 3:
-                                    t = float(parts[0])
-                                    f = float(parts[1])
-                                    d = float(parts[2])
-                                    self.live_data.emit(t, f, d) # An den Graphen senden
+                                    try:
+                                        t = float(parts[0])
+                                        f = float(parts[1])
+                                        d = float(parts[2])
+                                        self.plot_buffer.append((t, f, d))
+                                        if self.is_recording:
+                                            self.recorded_data.append((t, f, d))
+                                    except ValueError:
+                                        pass
+
+                        if finished_snapshot is not None:
+                            self.state_update.emit(finish_status)
+                            self.measurement_finished.emit(finished_snapshot)
                 except Exception:
                     pass
-            time.sleep(0.01)
-
-    def connect_port(self, port):
-        try:
-            self.connection_status.emit(True, f"Connecting to {port}...")
-            self.serial_stream = SerialStream(port, self.baudrate)
-            self.connection_status.emit(True, f"Connected ({port} @ {self.baudrate} Baud)")
-            return True
-        except Exception as e:
-            self.connection_status.emit(False, f"Error: {e}")
-            self.serial_stream = None
-            return False
-
-    def disconnect_port(self):
-        if self.serial_stream:
-            try:
-                if self.serial_stream.SerialPort.is_open:
-                    self.serial_stream.SerialPort.close()
-                self.serial_stream = None
-                self.connection_status.emit(False, "Not connected")
-            except Exception as e:
-                self.connection_status.emit(False, f"Error disconnecting: {e}")
-
-    def start_measurement(self):
-        if not self.serial_stream:
-            self.state_update.emit("ERROR: Not connected")
-            return
-
-        self.state_update.emit("MEASUREMENT RUNNING... (Waiting for STM32)")
-        try:
-            self.serial_stream.reset()
-            self.serial_stream.start()
-
-            while self.serial_stream.is_busy_flag():
-                time.sleep(0.1)
-                
-            data = self.serial_stream.get_data()
-            self.state_update.emit("MEASUREMENT FINISHED")
-            self.result_ready.emit(data)
-
-        except Exception as e:
-            self.state_update.emit(f"ERROR: {e}")
-
-
-    def send_command(self, cmd_string):
-        if self.serial_stream and self.serial_stream.SerialPort.is_open:
-            self.serial_stream.SerialPort.write(f"{cmd_string}\n".encode('utf-8'))
-
-    def stop(self):
-        self.is_running = False
-        self.disconnect_port()
+            time.sleep(0.005)
 
     def pop_buffers(self):
         with self.lock:
@@ -109,31 +86,72 @@ class MeasurementWorker(QThread):
             self.plot_buffer.clear()
         return logs, points
 
+    def start_recording(self):
+        with self.lock:
+            self.recorded_data.clear()
+            self.is_recording = True
+            self.saw_pull_state = False
+        self.state_update.emit("MEASUREMENT RUNNING...")
+
+    def stop_recording(self):
+        with self.lock:
+            self.is_recording = False
+            return list(self.recorded_data)
+
+    def connect_port(self, port):
+        try:
+            self.connection_status.emit(True, f"Connecting to {port}...")
+            self.ser = serial.Serial(port, self.baudrate, timeout=0.05)
+            self.connection_status.emit(True, f"Connected ({port} @ {self.baudrate} Baud)")
+            return True
+        except Exception as e:
+            self.connection_status.emit(False, f"Error: {e}")
+            self.ser = None
+            return False
+
+    def disconnect_port(self):
+        if self.ser:
+            try:
+                if self.ser.is_open:
+                    self.ser.close()
+                self.ser = None
+                self.connection_status.emit(False, "Not connected")
+            except Exception as e:
+                self.connection_status.emit(False, f"Error disconnecting: {e}")
+
+    def send_command(self, cmd_string):
+        if self.ser and self.ser.is_open:
+            try:
+                self.ser.write(f"{cmd_string}\n".encode('utf-8'))
+            except Exception:
+                pass
+
+    def stop(self):
+        self.is_running = False
+        self.disconnect_port()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Tensile Testing Machine - PES Board")
         self.resize(1150, 800)
 
-        self.baudrate = int(115200)
+        self.baudrate = 115200
         self.messdaten = None
-
 
         self.live_strain = []
         self.live_stress = []
 
         self.worker = MeasurementWorker(self.baudrate)
         self.worker.connection_status.connect(self.on_connection_status)
-        self.worker.log_message.connect(self.append_log)
         self.worker.state_update.connect(self.on_state_update)
-        self.worker.result_ready.connect(self.on_result_ready)
-        self.worker.live_data.connect(self.update_live_plot)
+        self.worker.measurement_finished.connect(self.on_measurement_finished)
         self.worker.start()
 
         self.init_ui()
 
-
-# UI-Refresh auf 25 FPS (alle 40 ms) drosseln für maximale Performance
+        # UI-Refresh auf 25 FPS (alle 40 ms) drosseln für maximale Performance
         self.ui_timer = QTimer(self)
         self.ui_timer.timeout.connect(self.update_ui_batch)
         self.ui_timer.start(40)
@@ -154,10 +172,6 @@ class MainWindow(QMainWindow):
         self.worker.send_command(f"CALIB:{calib_factor}")
         return True
 
-    def append_log(self, text):
-        self.text_log.append(text)
-        self.text_log.verticalScrollBar().setValue(self.text_log.verticalScrollBar().maximum())
-
     def init_ui(self):
         main_widget = QWidget()
         main_layout = QVBoxLayout()
@@ -165,24 +179,24 @@ class MainWindow(QMainWindow):
         # --- Top Bar (COM Port Connection) ---
         connection_group = QGroupBox("Connection (STM32)")
         conn_layout = QHBoxLayout()
-        
+
         self.cb_ports = QComboBox()
         self.cb_ports.view().parentWidget().setMinimumWidth(200)
         self.refresh_ports()
-        
+
         btn_refresh = QPushButton("↻ Scan Ports")
         btn_refresh.clicked.connect(self.refresh_ports)
-        
+
         self.btn_connect = QPushButton("Connect")
         self.btn_connect.clicked.connect(self.connect_serial)
-        
+
         self.btn_disconnect = QPushButton("Disconnect")
         self.btn_disconnect.clicked.connect(self.disconnect_serial)
         self.btn_disconnect.setEnabled(False)
 
         self.lbl_conn = QLabel("Not connected")
         self.lbl_conn.setStyleSheet("color: red; font-weight: bold;")
-        
+
         self.lbl_state = QLabel("Status: READY")
         self.lbl_state.setStyleSheet("font-weight: bold; font-size: 14px; margin-left: 20px;")
 
@@ -197,32 +211,30 @@ class MainWindow(QMainWindow):
         connection_group.setLayout(conn_layout)
         main_layout.addWidget(connection_group)
 
-
-
         # --- STM32 Empfangs-Monitor ---
         log_group = QGroupBox("STM32 Received Data (Serial Monitor)")
         log_layout = QVBoxLayout()
-        
+
         self.text_log = QTextEdit()
         self.text_log.setReadOnly(True)
         self.text_log.setMaximumHeight(150)
-        self.text_log.document().setMaximumBlockCount(500)  # Begrenzt Verlauf auf 500 Zeilen
+        self.text_log.document().setMaximumBlockCount(500)
         self.text_log.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: Consolas; font-size: 11px;")
-        
+
         btn_clear_log = QPushButton("Clear Monitor")
         btn_clear_log.clicked.connect(self.text_log.clear)
-        
+
         log_layout.addWidget(self.text_log)
         log_layout.addWidget(btn_clear_log)
         log_group.setLayout(log_layout)
-        
+
         main_layout.addWidget(log_group)
 
         # --- Middle Area ---
         mid_layout = QHBoxLayout()
 
         left_col = QVBoxLayout()
-        
+
         # Specimen Parameters
         param_group = QGroupBox("Specimen Parameters")
         param_layout = QFormLayout()
@@ -257,29 +269,29 @@ class MainWindow(QMainWindow):
         # Machine Control
         ctrl_group = QGroupBox("Machine Control")
         ctrl_layout = QVBoxLayout()
-        
+
         btn_ref = QPushButton("1. Homing (Reference Run (future...))")
         btn_ref.setStyleSheet("background-color: #f0e68c;")
         btn_ref.clicked.connect(lambda: self.worker.send_command("HOMING"))
-        
+
         btn_fwd = QPushButton("Motor FWD (Jog)")
         btn_fwd.pressed.connect(lambda: self.worker.send_command("JOG_FWD"))
         btn_fwd.released.connect(lambda: self.worker.send_command("JOG_STOP"))
-        
+
         btn_rev = QPushButton("Motor REV (Jog)")
         btn_rev.pressed.connect(lambda: self.worker.send_command("JOG_REV"))
         btn_rev.released.connect(lambda: self.worker.send_command("JOG_STOP"))
-        
+
         btn_tare = QPushButton("2. TARE (Zero Force/Displacement)")
         btn_tare.clicked.connect(lambda: self.worker.send_command("TARE"))
-        
+
         ctrl_layout.addWidget(btn_ref)
         ctrl_layout.addWidget(btn_fwd)
         ctrl_layout.addWidget(btn_rev)
         ctrl_layout.addWidget(btn_tare)
         ctrl_group.setLayout(ctrl_layout)
         left_col.addWidget(ctrl_group)
-        
+
         left_col.addStretch()
         mid_layout.addLayout(left_col, 1)
 
@@ -295,19 +307,19 @@ class MainWindow(QMainWindow):
 
         # --- Bottom Bar ---
         btn_layout = QHBoxLayout()
-        
+
         btn_start = QPushButton("START TENSILE TEST")
         btn_start.setStyleSheet("background-color: lightgreen; height: 50px; font-weight: bold;")
         btn_start.clicked.connect(self.show_safety_popup)
-        
+
         btn_stop = QPushButton("Schnellstop (NOT HALT!)")
         btn_stop.setStyleSheet("background-color: salmon; height: 50px; font-weight: bold;")
-        btn_stop.clicked.connect(lambda: self.worker.send_command("E-STOP"))
-        
+        btn_stop.clicked.connect(self.trigger_estop)
+
         btn_reset = QPushButton("Measurement Data / RESET")
         btn_reset.setStyleSheet("height: 50px;")
-        btn_reset.clicked.connect(lambda: self.worker.send_command("RESET"))
-        
+        btn_reset.clicked.connect(self.reset_machine)
+
         btn_export = QPushButton("Export Data")
         btn_export.setStyleSheet("background-color: lightblue; height: 50px;")
         btn_export.clicked.connect(self.export_data)
@@ -321,13 +333,12 @@ class MainWindow(QMainWindow):
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
 
-
     def refresh_ports(self):
         self.cb_ports.clear()
         ports = serial.tools.list_ports.comports()
         for port in ports:
             self.cb_ports.addItem(port.device)
-        
+
         if not ports:
             self.cb_ports.addItem("No ports found")
 
@@ -356,45 +367,7 @@ class MainWindow(QMainWindow):
     def on_state_update(self, state):
         self.lbl_state.setText(f"Status: {state}")
 
-    def on_result_ready(self, data):
-        time_array = data["time"]
-        values_array = data["values"]
-
-        if len(time_array) == 0:
-            QMessageBox.warning(self, "Error", "No data received!")
-            return
-
-        if values_array.shape[1] < 2:
-            QMessageBox.warning(self, "Warning", "The STM32 is not sending displacement yet! Please adjust the firmware.")
-            return
-
-        force_N = values_array[:, 0] 
-        displacement_mm = values_array[:, 1]
-
-        try:
-            l0 = float(self.input_length.text().replace(',', '.'))
-            width = float(self.input_width.text().replace(',', '.'))
-            thickness = float(self.input_thickness.text().replace(',', '.'))
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Please enter valid numbers for the specimen geometry.")
-            return
-
-        area_mm2 = width * thickness
-        stress_MPa = force_N / area_mm2
-        strain_pct = (displacement_mm / l0) * 100
-
-        self.messdaten = {
-            "time_s": time_array,
-            "force_N": force_N,
-            "disp_mm": displacement_mm,
-            "stress_MPa": stress_MPa,
-            "strain_pct": strain_pct
-        }
-        
-        self.plot_line.setData(strain_pct, stress_MPa)
-        QMessageBox.information(self, "Success", f"Test completed! {len(time_array)} data points calculated.")
-
-    def update_ui_batch(self):  
+    def update_ui_batch(self):
         logs, points = self.worker.pop_buffers()
 
         if logs:
@@ -416,179 +389,192 @@ class MainWindow(QMainWindow):
             except ValueError:
                 pass
 
-
     def start_measurement(self):
         if not self.send_machine_parameters():
             return
-        
-        # Listen für den neuen Test leeren
+
         self.live_strain.clear()
         self.live_stress.clear()
         self.plot_line.setData([], [])
-        
         self.messdaten = None
-        self.worker.send_command("START") # Start-Befehl an STM32
-        threading.Thread(target=self.worker.start_measurement, daemon=True).start()
 
+        self.worker.start_recording()
+        self.worker.send_command("START")
+
+    def trigger_estop(self):
+        self.worker.send_command("E-STOP")
+        fallback_points = self.worker.stop_recording()
+        if fallback_points and self.messdaten is None:
+            try:
+                self.messdaten = self._build_messdaten_dict(fallback_points)
+            except ValueError:
+                pass
+        self.on_state_update("E-STOP TRIGGERED")
+
+    def reset_machine(self):
+        self.worker.send_command("RESET")
+        self.on_state_update("READY")
+
+    def _build_messdaten_dict(self, raw_points):
+        if not raw_points:
+            return None
+
+        arr = np.array(raw_points, dtype=float)
+        time_array = arr[:, 0]
+        force_N = arr[:, 1]
+        displacement_mm = arr[:, 2]
+
+        l0 = float(self.input_length.text().replace(',', '.'))
+        width = float(self.input_width.text().replace(',', '.'))
+        thickness = float(self.input_thickness.text().replace(',', '.'))
+
+        area_mm2 = width * thickness
+        stress_MPa = force_N / area_mm2
+        strain_pct = (displacement_mm / l0) * 100.0
+
+        return {
+            "time_s": time_array,
+            "force_N": force_N,
+            "disp_mm": displacement_mm,
+            "stress_MPa": stress_MPa,
+            "strain_pct": strain_pct
+        }
+
+    def on_measurement_finished(self, raw_points):
+        if not raw_points:
+            QMessageBox.warning(self, "Error", "No data received during measurement!")
+            return
+
+        try:
+            self.messdaten = self._build_messdaten_dict(raw_points)
+            self.plot_line.setData(self.messdaten["strain_pct"], self.messdaten["stress_MPa"])
+            QMessageBox.information(
+                self, "Success",
+                f"Test completed! {len(self.messdaten['time_s'])} data points recorded."
+            )
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid specimen geometry values.")
 
     def export_data(self):
         if self.messdaten is None:
+            fallback_points = self.worker.stop_recording()
+            if fallback_points:
+                try:
+                    self.messdaten = self._build_messdaten_dict(fallback_points)
+                except ValueError:
+                    pass
+
+        if self.messdaten is None:
             QMessageBox.warning(self, "Error", "No calculated measurement data available!")
             return
-            
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         proben_name = self.input_name.text().replace(" ", "_")
         default_filename = f"{timestamp}_{proben_name}.csv"
-            
-        path, _ = QFileDialog.getSaveFileName(self, "Save Measurement Data", default_filename, "CSV Files (*.csv)")
-        
-        if path:
-            with open(path, mode='w', newline='') as file:
-                writer = csv.writer(file, delimiter=';')
-                
-                writer.writerow(["# Specimen Name", self.input_name.text()])
-                writer.writerow(["# L0 (mm)", self.input_length.text()])
-                writer.writerow(["# Width (mm)", self.input_width.text()])
-                writer.writerow(["# Thickness (mm)", self.input_thickness.text()])
-                writer.writerow([])
-                
-                writer.writerow(['Time (s)', 'Force (N)', 'Displacement (mm)', 'Stress (MPa)', 'Strain (%)'])
-                
-                for i in range(len(self.messdaten["time_s"])):
-                    writer.writerow([
-                        round(self.messdaten["time_s"][i], 4),
-                        round(self.messdaten["force_N"][i], 3),
-                        round(self.messdaten["disp_mm"][i], 4),
-                        round(self.messdaten["stress_MPa"][i], 3),
-                        round(self.messdaten["strain_pct"][i], 4)
-                    ])
-                    
-            QMessageBox.information(self, "Success", "Data successfully exported!")
 
-    def update_live_plot(self, t, f, d):
-        try:
-            # Geometrie auslesen
-            l0 = float(self.input_length.text().replace(',', '.'))
-            width = float(self.input_width.text().replace(',', '.'))
-            thickness = float(self.input_thickness.text().replace(',', '.'))
-            
-            # Spannung und Dehnung berechnen
-            area = width * thickness
-            stress = f / area
-            strain = (d / l0) * 100
-            
-            # An Listen anhängen
-            self.live_strain.append(strain)
-            self.live_stress.append(stress)
-            
-            # Graphen aktualisieren
-            self.plot_line.setData(self.live_strain, self.live_stress)
-        except ValueError:
-            pass # Ignorieren, falls Benutzereingaben ungültig sind
+        path, _ = QFileDialog.getSaveFileName(self, "Save Measurement Data", default_filename, "CSV Files (*.csv)")
+
+        if path:
+            try:
+                with open(path, mode='w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file, delimiter=';')
+
+                    writer.writerow(["# Specimen Name", self.input_name.text()])
+                    writer.writerow(["# L0 (mm)", self.input_length.text()])
+                    writer.writerow(["# Width (mm)", self.input_width.text()])
+                    writer.writerow(["# Thickness (mm)", self.input_thickness.text()])
+                    writer.writerow([])
+
+                    writer.writerow(['Time (s)', 'Force (N)', 'Displacement (mm)', 'Stress (MPa)', 'Strain (%)'])
+
+                    for i in range(len(self.messdaten["time_s"])):
+                        writer.writerow([
+                            round(self.messdaten["time_s"][i], 4),
+                            round(self.messdaten["force_N"][i], 3),
+                            round(self.messdaten["disp_mm"][i], 4),
+                            round(self.messdaten["stress_MPa"][i], 3),
+                            round(self.messdaten["strain_pct"][i], 4)
+                        ])
+
+                QMessageBox.information(self, "Success", "Data successfully exported!")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Could not save file:\n{e}")
 
     def closeEvent(self, event):
+        self.ui_timer.stop()
         self.worker.stop()
         self.worker.wait()
         event.accept()
 
     def show_safety_popup(self):
-        # Create a safety confirmation popup
         popup = QMessageBox(self)
         popup.setWindowTitle("Safety Confirmation")
         popup.setIcon(QMessageBox.Warning)
         popup.setText("Safety Conditions:\n\n1. Make sure that the Testing System is unloaded and empty.\n2. Make sure the area is clear of personnel.\n3. Wear appropriate safety gear.\n\nDo you want to proceed with the tensile test?")
 
-        # Add Confirm and Cancel buttons
         btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
 
-        # Show the popup and wait for user response
         popup.exec_()
         if popup.clickedButton() == btn_confirm:
             self.show_reference_popup()
 
     def show_reference_popup(self):
-        # Create referencing popup
         popup = QMessageBox(self)
         popup.setWindowTitle("Motor Referencing")
         popup.setIcon(QMessageBox.Information)
-
-        # Display message
         popup.setText("Motor run in reference (Zero) position.")
 
-        # Add buttons
         btn_start = popup.addButton("Start Referencing", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
 
-        # Show popup
         popup.exec_()
-        
         if popup.clickedButton() == btn_start:
-            # self.worker.send_command("HOMING") # Falls du später homing nutzt
-            self.show_insert_specimen_popup()    # <-- DAS ÖFFNET NUN DAS "INSERT SPECIMEN" FENSTER!
+            self.show_insert_specimen_popup()
 
     def show_insert_specimen_popup(self):
-        # Create information popup
         popup = QMessageBox(self)
         popup.setWindowTitle("Insert Specimen")
         popup.setIcon(QMessageBox.Information)
-
         popup.setText(
             "Reference position reached!\n\n"
             "Please insert the specimen into the testing system and ensure it is positioned correctly.\n\n"
         )
-        # Add buttons
         btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
 
-        # Show the popup and wait for user response
         popup.exec_()
         if popup.clickedButton() == btn_confirm:
-            self.show_startup_popup()  # <-- Hier stand noch fälschlicherweise show_reference_popup!
+            self.show_startup_popup()
 
     def show_startup_popup(self):
-        # Create information popup
         popup = QMessageBox(self)
         popup.setWindowTitle("Start Tensile Test")
         popup.setIcon(QMessageBox.Information)
-
         popup.setText(
             "Specimen is inserted\n\n"
             "Hands are out of the testing area\n\n"
             "Start Tensile Test\n\n"
         )
-        # Add buttons
-        btn_start= popup.addButton("Start Test", QMessageBox.AcceptRole)
+        btn_start = popup.addButton("Start Test", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
 
-        # Show the popup and wait for user response
         popup.exec_()
         if popup.clickedButton() == btn_start:
-            self.start_measurement() # Schnittstelle zu Micocontroller
+            self.start_measurement()
 
     def show_remvoe_specimen_popup(self):
-        # Create information popup
         popup = QMessageBox(self)
         popup.setWindowTitle("Remove Specimen")
         popup.setIcon(QMessageBox.Information)
-    
         popup.setText(
             "Motor reached initional position again\n\n"
             "Please remove the specimen out of the testing system\n\n"
         )
-        # Add buttons
         btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
-    
-        # Show the popup and wait for user response
-        #popup.exec_()
-        #if popup.clickedButton() == btn_confirm:
-        #   self.
 
 
-
-
-        
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
