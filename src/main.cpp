@@ -33,7 +33,7 @@ int main()
 
     // Endschalter für Initialposition
     // 20.11.26
-    DigitalIn limit_switch(PA_10);
+    DigitalIn limit_switch(PC_9);
     limit_switch.mode(PullUp); // 0 = betätigt, 1 = nicht betätigt
     const float reference_speed = -1.0f; // Geschwindigkeit für Referenzfahrt
 
@@ -153,6 +153,13 @@ int main()
             // 20.11.26
             case MachineStep::ST_REFERENCING: {
                 // prüfen, ob Intialposition erreicht ist
+
+                if (limit_switch.read() == 0){
+                    printf("Limit Switch aktiviert. Referenzfahrt beendet.\n");
+                } else {
+                    printf("Limit Switch nicht aktiviert. Referenzfahrt läuft.\n");  
+                }
+                
                 if (limit_switch.read() == 0) {
 
                     // Motor stoppen

@@ -13,6 +13,7 @@ public:
     bool cmd_reset;
     bool cmd_reference_start;
     bool cmd_specimen_confirmed;
+    bool cmd_reference_complete;
     bool jog_fwd;
     bool jog_rev;
     bool tare;

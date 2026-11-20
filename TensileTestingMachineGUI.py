@@ -301,6 +301,9 @@ class MainWindow(QMainWindow):
         btn_refresh = QPushButton("↻ Scan Ports")
         btn_refresh.clicked.connect(self.refresh_ports)
 
+        btn_ref_done = QPushButton("Reference done")
+        btn_ref_done.clicked.connect(self.confirm_reference_done)
+
         self.btn_connect = QPushButton("Connect")
         self.btn_connect.clicked.connect(self.connect_serial)
 
@@ -317,6 +320,7 @@ class MainWindow(QMainWindow):
         conn_layout.addWidget(QLabel("COM Port:"))
         conn_layout.addWidget(self.cb_ports)
         conn_layout.addWidget(btn_refresh)
+        conn_layout.addWidget(btn_ref_done)
         conn_layout.addWidget(self.btn_connect)
         conn_layout.addWidget(self.btn_disconnect)
         conn_layout.addWidget(self.lbl_conn)
@@ -412,6 +416,9 @@ class MainWindow(QMainWindow):
 
         btn_tare = QPushButton("2. TARE (Zero Force/Displacement)")
         btn_tare.clicked.connect(lambda: self.worker.send_command("TARE"))
+
+        btn_ref_done = QPushButton("Reference done")
+        btn_ref_done.clicked.connect(lambda: self.worker.send_command("ReferenceDone"))
 
         ctrl_layout.addWidget(btn_ref)
         ctrl_layout.addWidget(btn_fwd)
