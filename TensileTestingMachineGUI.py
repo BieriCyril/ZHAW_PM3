@@ -20,6 +20,17 @@ import pyqtgraph as pg
 STATE_RE = re.compile(r"State:\s*(\d+)")
 MAX_RX_BUFFER = 65536
 
+# Zustandsmaschine der Firmware (enum MachineStep, Position = Enum-Wert)
+MACHINE_STATES = [
+    ("ST_IDLE", "Start state"),
+    ("ST_REFERENCING", "Motor moves to initial position"),
+    ("ST_WAIT_SPECIMEN", "Waiting for specimen insertion"),
+    ("ST_PULL_BACK", "Pull back"),
+    ("ST_FINISHED", "Finished"),
+    ("ST_FAULT", "Fault"),
+]
+
+
 
 class MeasurementWorker(QThread):
     connection_status = pyqtSignal(bool, str)
@@ -352,6 +363,20 @@ class MainWindow(QMainWindow):
         param_group.setLayout(param_layout)
         left_col.addWidget(param_group)
 
+                # State Legend (enum MachineStep der Firmware)
+        legend_group = QGroupBox("State Legend (Firmware)")
+        legend_layout = QVBoxLayout()
+        rows = "".join(
+            f"<tr><td align='right'><b>{i}</b>&nbsp;</td>"
+            f"<td><code>{name}</code>&nbsp;&nbsp;</td><td>{desc}</td></tr>"
+            for i, (name, desc) in enumerate(MACHINE_STATES)
+        )
+        lbl_legend = QLabel(f"<table cellspacing='2'>{rows}</table>")
+        lbl_legend.setStyleSheet("font-size: 11px;")
+        legend_layout.addWidget(lbl_legend)
+        legend_group.setLayout(legend_layout)
+        left_col.addWidget(legend_group)
+
         # Machine Parameters (TIME, PULL_SPEED, JOG_SPD)
         mach_param_group = QGroupBox("Test & Motor Parameters")
         mach_param_layout = QFormLayout()
@@ -373,9 +398,9 @@ class MainWindow(QMainWindow):
         ctrl_group = QGroupBox("Machine Control")
         ctrl_layout = QVBoxLayout()
 
-        btn_ref = QPushButton("1. Homing (Reference Run (future...))")
+        btn_ref = QPushButton("1. Referencing (Reference Run)")
         btn_ref.setStyleSheet("background-color: #f0e68c;")
-        btn_ref.clicked.connect(lambda: self.worker.send_command("HOMING"))
+        btn_ref.clicked.connect(lambda: self.worker.send_command("REFERENCE_START"))
 
         btn_fwd = QPushButton("Motor FWD (Jog)")
         btn_fwd.pressed.connect(lambda: self.worker.send_command("JOG_FWD"))
@@ -674,7 +699,7 @@ class MainWindow(QMainWindow):
         if popup.clickedButton() == btn_start:
             if not self._require_connection():
                 return
-            self.worker.send_command("HOMING")
+            self.worker.send_command("REFERENCE_START")
             self.show_insert_specimen_popup()
 
     def show_insert_specimen_popup(self):
@@ -695,7 +720,7 @@ class MainWindow(QMainWindow):
             if not self._require_connection():
                 return
             self.worker.send_command("ConfirmSpecimenInserted")
-            self.show_insert_specimen_popup()
+            self.show_startup_popup()
 
     def show_startup_popup(self):
         popup = QMessageBox(self)

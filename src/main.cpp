@@ -33,7 +33,7 @@ int main()
 
     // Endschalter für Initialposition
     // 20.11.26
-    DigitalIn limit_switch(PC_7);
+    DigitalIn limit_switch(PA_10);
     limit_switch.mode(PullUp); // 0 = betätigt, 1 = nicht betätigt
     const float reference_speed = -1.0f; // Geschwindigkeit für Referenzfahrt
 
@@ -51,6 +51,8 @@ int main()
     float calibration_factor = -21630.5f; //- Default calibration factor, can be adjusted via GUI
     const float spindel_steigung_mm = 1.0f; //-m6
     float displacement_mm = 0.0f;
+    float rotation_offset = 0.0f;
+
 
 // --- Funktion zum Auslesen des HX711, construct object
     HX711 loadcell(PB_4, PC_5);
@@ -122,16 +124,14 @@ int main()
             case MachineStep::ST_IDLE: {
                 // In IDLE warten wir auf GUI Befehle (Start oder Jogging)
                 
-                if (gui.cmd_start) {
+                if (gui.cmd_reference_start) { // 20.11.26
                     // GUI hat Startbefehl gesendet
-                    gui.cmd_start = false; // Befehl quittieren/zurücksetzen
-                    
+                    gui.cmd_reference_start = false; // Befehl quittieren/zurücksetzen
+                    rotation_offset = stepper_M1.getRotation(); // Weg beim Teststart sicher auf 0 setzen
                     pull_back_timer.reset();
                     pull_back_timer.start();
-                    // 20.11.26 machine_step = ST_REFERENCING;
-                    // 20.11.26 printf("Transition to Step: ST_REFERENCING\n");
-                    machine_step = MachineStep::ST_PULL_BACK;
-                    printf("Transition to Step: ST_PULL_BACK\n");
+                    machine_step = MachineStep::ST_REFERENCING;
+                    printf("Transition to Step: ST_REFERENCING\n");
                 } 
                 else if (gui.jog_fwd) {
                     stepper_M1.setVelocity(gui.jog_speed); //- forward speed
@@ -180,6 +180,7 @@ int main()
                     machine_step = MachineStep::ST_PULL_BACK;
                     printf("Transition to Step: ST_PULL_BACK\n");
                 }
+                break;
             }
 
             case MachineStep::ST_PULL_BACK: {
@@ -235,12 +236,11 @@ int main()
 
         // --- Wegberechnung 
         // Echte Hardware (Spindel & Stepper)
-        displacement_mm = stepper_M1.getRotation() * spindel_steigung_mm;
-
+        displacement_mm = (stepper_M1.getRotation() - rotation_offset) * spindel_steigung_mm;
 
  // --- Stepper Enable Logik (0 = aktiviert, 1 = deaktiviert) ---
         bool is_jogging = (machine_step == MachineStep::ST_IDLE) && (gui.jog_fwd || gui.jog_rev);
-        if (machine_step == MachineStep::ST_PULL_BACK || is_jogging) { 
+        if (machine_step == MachineStep::ST_PULL_BACK || is_jogging  ||  machine_step == MachineStep::ST_REFERENCING) { 
             enableSTEPPER.write(0); // Aktiviert
             //printf("Stepper an\n");
         } else {
