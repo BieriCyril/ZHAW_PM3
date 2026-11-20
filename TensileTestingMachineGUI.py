@@ -2,6 +2,7 @@
 
 import sys
 import csv
+import re
 import time
 import threading
 import numpy as np
@@ -15,17 +16,23 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 import pyqtgraph as pg
 
+# Exakter Zustandsvergleich ("State: 1" darf nicht auf "State: 10" matchen)
+STATE_RE = re.compile(r"State:\s*(\d+)")
+MAX_RX_BUFFER = 65536
+
 
 class MeasurementWorker(QThread):
     connection_status = pyqtSignal(bool, str)
     state_update = pyqtSignal(str)
-    measurement_finished = pyqtSignal(list)
+    # (Messpunkte, Abbruch/Fault-Flag)
+    measurement_finished = pyqtSignal(list, bool)
 
     def __init__(self, baudrate):
         super().__init__()
         self.baudrate = baudrate
         self.is_running = True
         self.ser = None
+        self.rx_buffer = b""
 
         self.lock = threading.Lock()
         self.log_buffer = []
@@ -35,48 +42,88 @@ class MeasurementWorker(QThread):
         self.is_recording = False
         self.saw_pull_state = False
 
+    @property
+    def is_connected(self):
+        ser = self.ser
+        return ser is not None and ser.is_open
+
     def run(self):
         while self.is_running:
-            if self.ser and self.ser.is_open:
+            ser = self.ser
+            if ser is not None:
                 try:
-                    if self.ser.in_waiting > 0:
-                        line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                        if not line:
-                            continue
-
-                        finished_snapshot = None
-                        finish_status = "MEASUREMENT FINISHED"
-
-                        with self.lock:
-                            self.log_buffer.append(line)
-
-                            if "State: 1" in line:
-                                self.saw_pull_state = True
-                            elif self.is_recording and self.saw_pull_state and ("State: 2" in line or "State: 3" in line):
-                                self.is_recording = False
-                                finished_snapshot = list(self.recorded_data)
-                                if "State: 3" in line:
-                                    finish_status = "FAULT / E-STOP"
-
-                            if ";" in line and "State" not in line:
-                                parts = line.split(";")
-                                if len(parts) == 3:
-                                    try:
-                                        t = float(parts[0])
-                                        f = float(parts[1])
-                                        d = float(parts[2])
-                                        self.plot_buffer.append((t, f, d))
-                                        if self.is_recording:
-                                            self.recorded_data.append((t, f, d))
-                                    except ValueError:
-                                        pass
-
-                        if finished_snapshot is not None:
-                            self.state_update.emit(finish_status)
-                            self.measurement_finished.emit(finished_snapshot)
-                except Exception:
-                    pass
+                    if ser.is_open:
+                        waiting = ser.in_waiting
+                        if waiting > 0:
+                            # Rohbytes puffern, damit unvollstaendige Zeilen
+                            # nicht in zwei Teile zerrissen werden
+                            self.rx_buffer += ser.read(waiting)
+                            if len(self.rx_buffer) > MAX_RX_BUFFER and b"\n" not in self.rx_buffer:
+                                self.rx_buffer = b""
+                            while b"\n" in self.rx_buffer:
+                                raw, self.rx_buffer = self.rx_buffer.split(b"\n", 1)
+                                line = raw.decode('utf-8', errors='ignore').strip()
+                                if line:
+                                    self._process_line(line)
+                except (serial.SerialException, OSError) as e:
+                    # Nur melden, wenn der Port nicht absichtlich geschlossen wurde
+                    if self.ser is ser:
+                        self._handle_connection_lost(ser, e)
+                except Exception as e:
+                    with self.lock:
+                        self.log_buffer.append(f"[GUI] Internal error: {e}")
             time.sleep(0.005)
+
+    def _process_line(self, line):
+        finished_snapshot = None
+        fault = False
+
+        with self.lock:
+            self.log_buffer.append(line)
+
+            match = STATE_RE.search(line)
+            if match:
+                state = int(match.group(1))
+                if state == 1:
+                    self.saw_pull_state = True
+                elif self.is_recording and self.saw_pull_state and state in (2, 3):
+                    self.is_recording = False
+                    finished_snapshot = list(self.recorded_data)
+                    fault = (state == 3)
+            elif ";" in line and "State" not in line:
+                parts = line.split(";")
+                if len(parts) == 3:
+                    try:
+                        t = float(parts[0])
+                        f = float(parts[1])
+                        d = float(parts[2])
+                        self.plot_buffer.append((t, f, d))
+                        # Aufzeichnung erst ab Zugbeginn (State: 1)
+                        if self.is_recording and self.saw_pull_state:
+                            self.recorded_data.append((t, f, d))
+                    except ValueError:
+                        pass
+
+        if finished_snapshot is not None:
+            self.state_update.emit("FAULT / E-STOP" if fault else "MEASUREMENT FINISHED")
+            self.measurement_finished.emit(finished_snapshot, fault)
+
+    def _handle_connection_lost(self, ser, error):
+        self.ser = None
+        self.rx_buffer = b""
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+        with self.lock:
+            was_recording = self.is_recording
+            self.is_recording = False
+            self.log_buffer.append(f"[GUI] Connection lost: {error}")
+
+        self.connection_status.emit(False, "Connection lost")
+        if was_recording:
+            self.state_update.emit("CONNECTION LOST - DATA INCOMPLETE")
 
     def pop_buffers(self):
         with self.lock:
@@ -98,9 +145,15 @@ class MeasurementWorker(QThread):
             self.is_recording = False
             return list(self.recorded_data)
 
+    def snapshot_recorded(self):
+        """Kopie der bisherigen Daten, ohne die Aufzeichnung zu beenden."""
+        with self.lock:
+            return list(self.recorded_data)
+
     def connect_port(self, port):
         try:
             self.connection_status.emit(True, f"Connecting to {port}...")
+            self.rx_buffer = b""
             self.ser = serial.Serial(port, self.baudrate, timeout=0.05)
             self.connection_status.emit(True, f"Connected ({port} @ {self.baudrate} Baud)")
             return True
@@ -110,21 +163,25 @@ class MeasurementWorker(QThread):
             return False
 
     def disconnect_port(self):
-        if self.ser:
+        ser = self.ser
+        self.ser = None  # zuerst auf None setzen, damit run() keinen Fehler meldet
+        self.rx_buffer = b""
+        if ser:
             try:
-                if self.ser.is_open:
-                    self.ser.close()
-                self.ser = None
+                if ser.is_open:
+                    ser.close()
                 self.connection_status.emit(False, "Not connected")
             except Exception as e:
                 self.connection_status.emit(False, f"Error disconnecting: {e}")
 
     def send_command(self, cmd_string):
-        if self.ser and self.ser.is_open:
+        ser = self.ser
+        if ser and ser.is_open:
             try:
-                self.ser.write(f"{cmd_string}\n".encode('utf-8'))
-            except Exception:
-                pass
+                ser.write(f"{cmd_string}\n".encode('utf-8'))
+            except Exception as e:
+                with self.lock:
+                    self.log_buffer.append(f"[GUI] Send error ({cmd_string}): {e}")
 
     def stop(self):
         self.is_running = False
@@ -139,6 +196,8 @@ class MainWindow(QMainWindow):
 
         self.baudrate = 115200
         self.messdaten = None
+        # Probenparameter, die beim Start einer Messung eingefroren werden
+        self.meas_params = None
 
         self.live_strain = []
         self.live_stress = []
@@ -156,12 +215,53 @@ class MainWindow(QMainWindow):
         self.ui_timer.timeout.connect(self.update_ui_batch)
         self.ui_timer.start(40)
 
+    # ------------------------------------------------------------------
+    # Hilfsfunktionen
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _to_float(text):
+        return float(text.replace(',', '.'))
+
+    def _read_geometry_fields(self):
+        """Liest L0, Breite, Dicke aus den Eingabefeldern. Wirft ValueError bei ungültigen Werten."""
+        l0 = self._to_float(self.input_length.text())
+        width = self._to_float(self.input_width.text())
+        thickness = self._to_float(self.input_thickness.text())
+        if l0 <= 0 or width <= 0 or thickness <= 0:
+            raise ValueError("Geometry values must be greater than zero")
+        return l0, width, thickness
+
+    def _active_geometry(self):
+        """Eingefrorene Geometrie der laufenden/letzten Messung, sonst die Eingabefelder."""
+        if self.meas_params:
+            p = self.meas_params
+            return p["l0"], p["width"], p["thickness"]
+        return self._read_geometry_fields()
+
+    def _specimen_info(self):
+        if self.meas_params:
+            return self.meas_params
+        return {
+            "name": self.input_name.text(),
+            "l0": self.input_length.text(),
+            "width": self.input_width.text(),
+            "thickness": self.input_thickness.text(),
+        }
+
+    def _require_connection(self):
+        if not self.worker.is_connected:
+            QMessageBox.warning(self, "Not connected", "Please connect to the STM32 first.")
+            return False
+        return True
+
     def send_machine_parameters(self):
+        if not self._require_connection():
+            return False
         try:
-            pull_time_ms = int(float(self.input_pull_time.text().replace(',', '.')))
-            pull_speed = float(self.input_pull_speed.text().replace(',', '.'))
-            jog_speed = float(self.input_jog_speed.text().replace(',', '.'))
-            calib_factor = float(self.input_calib.text().replace(',', '.'))
+            pull_time_ms = int(self._to_float(self.input_pull_time.text()))
+            pull_speed = self._to_float(self.input_pull_speed.text())
+            jog_speed = self._to_float(self.input_jog_speed.text())
+            calib_factor = self._to_float(self.input_calib.text())
         except ValueError:
             QMessageBox.warning(self, "Error", "Please enter valid numeric values for time and speeds.")
             return False
@@ -172,6 +272,9 @@ class MainWindow(QMainWindow):
         self.worker.send_command(f"CALIB:{calib_factor}")
         return True
 
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
     def init_ui(self):
         main_widget = QWidget()
         main_layout = QVBoxLayout()
@@ -297,8 +400,11 @@ class MainWindow(QMainWindow):
 
         # Right Column: Graph
         self.graphWidget = pg.PlotWidget(title="Stress-Strain Diagram")
-        self.graphWidget.setLabel('left', 'Stress (MPa)', units='N/mm²')
+        self.graphWidget.setLabel('left', 'Stress', units='MPa')
         self.graphWidget.setLabel('bottom', 'Strain', units='%')
+        # Keine automatischen SI-Präfixe (sonst z. B. "kMPa" oder "m%")
+        self.graphWidget.getAxis('left').enableAutoSIPrefix(False)
+        self.graphWidget.getAxis('bottom').enableAutoSIPrefix(False)
         self.graphWidget.showGrid(x=True, y=True)
         self.plot_line = self.graphWidget.plot([], [], pen=pg.mkPen('b', width=2))
         mid_layout.addWidget(self.graphWidget, 3)
@@ -312,11 +418,11 @@ class MainWindow(QMainWindow):
         btn_start.setStyleSheet("background-color: lightgreen; height: 50px; font-weight: bold;")
         btn_start.clicked.connect(self.show_safety_popup)
 
-        btn_stop = QPushButton("Schnellstop (NOT HALT!)")
+        btn_stop = QPushButton("EMERGENCY STOP")
         btn_stop.setStyleSheet("background-color: salmon; height: 50px; font-weight: bold;")
         btn_stop.clicked.connect(self.trigger_estop)
 
-        btn_reset = QPushButton("Measurement Data / RESET")
+        btn_reset = QPushButton("RESET Machine")
         btn_reset.setStyleSheet("height: 50px;")
         btn_reset.clicked.connect(self.reset_machine)
 
@@ -333,6 +439,9 @@ class MainWindow(QMainWindow):
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
 
+    # ------------------------------------------------------------------
+    # Verbindung
+    # ------------------------------------------------------------------
     def refresh_ports(self):
         self.cb_ports.clear()
         ports = serial.tools.list_ports.comports()
@@ -367,6 +476,9 @@ class MainWindow(QMainWindow):
     def on_state_update(self, state):
         self.lbl_state.setText(f"Status: {state}")
 
+    # ------------------------------------------------------------------
+    # Live-Anzeige
+    # ------------------------------------------------------------------
     def update_ui_batch(self):
         logs, points = self.worker.pop_buffers()
 
@@ -376,22 +488,39 @@ class MainWindow(QMainWindow):
 
         if points:
             try:
-                l0 = float(self.input_length.text().replace(',', '.'))
-                width = float(self.input_width.text().replace(',', '.'))
-                thickness = float(self.input_thickness.text().replace(',', '.'))
+                l0, width, thickness = self._active_geometry()
                 area = width * thickness
 
-                if area > 0 and l0 > 0:
-                    for _, f, d in points:
-                        self.live_stress.append(f / area)
-                        self.live_strain.append((d / l0) * 100.0)
-                    self.plot_line.setData(self.live_strain, self.live_stress)
+                for _, f, d in points:
+                    self.live_stress.append(f / area)
+                    self.live_strain.append((d / l0) * 100.0)
+                self.plot_line.setData(self.live_strain, self.live_stress)
             except ValueError:
                 pass
 
+    # ------------------------------------------------------------------
+    # Messung
+    # ------------------------------------------------------------------
     def start_measurement(self):
+        if not self._require_connection():
+            return
+
+        try:
+            l0, width, thickness = self._read_geometry_fields()
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Please enter valid specimen geometry values (greater than zero).")
+            return
+
         if not self.send_machine_parameters():
             return
+
+        # Probenparameter für diese Messung einfrieren
+        self.meas_params = {
+            "name": self.input_name.text(),
+            "l0": l0,
+            "width": width,
+            "thickness": thickness,
+        }
 
         self.live_strain.clear()
         self.live_stress.clear()
@@ -424,9 +553,7 @@ class MainWindow(QMainWindow):
         force_N = arr[:, 1]
         displacement_mm = arr[:, 2]
 
-        l0 = float(self.input_length.text().replace(',', '.'))
-        width = float(self.input_width.text().replace(',', '.'))
-        thickness = float(self.input_thickness.text().replace(',', '.'))
+        l0, width, thickness = self._active_geometry()
 
         area_mm2 = width * thickness
         stress_MPa = force_N / area_mm2
@@ -440,7 +567,7 @@ class MainWindow(QMainWindow):
             "strain_pct": strain_pct
         }
 
-    def on_measurement_finished(self, raw_points):
+    def on_measurement_finished(self, raw_points, fault):
         if not raw_points:
             QMessageBox.warning(self, "Error", "No data received during measurement!")
             return
@@ -448,16 +575,27 @@ class MainWindow(QMainWindow):
         try:
             self.messdaten = self._build_messdaten_dict(raw_points)
             self.plot_line.setData(self.messdaten["strain_pct"], self.messdaten["stress_MPa"])
-            QMessageBox.information(
-                self, "Success",
-                f"Test completed! {len(self.messdaten['time_s'])} data points recorded."
-            )
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid specimen geometry values.")
+            return
 
+        n = len(self.messdaten['time_s'])
+        if fault:
+            QMessageBox.warning(
+                self, "Test aborted",
+                f"The test was aborted by a fault / E-STOP.\n{n} data points were recorded until the abort."
+            )
+        else:
+            QMessageBox.information(self, "Success", f"Test completed! {n} data points recorded.")
+            self.show_remove_specimen_popup()
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
     def export_data(self):
         if self.messdaten is None:
-            fallback_points = self.worker.stop_recording()
+            # Aufzeichnung läuft weiter, es wird nur eine Kopie genommen
+            fallback_points = self.worker.snapshot_recorded()
             if fallback_points:
                 try:
                     self.messdaten = self._build_messdaten_dict(fallback_points)
@@ -468,8 +606,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "No calculated measurement data available!")
             return
 
+        info = self._specimen_info()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        proben_name = self.input_name.text().replace(" ", "_")
+        proben_name = str(info["name"]).replace(" ", "_")
         default_filename = f"{timestamp}_{proben_name}.csv"
 
         path, _ = QFileDialog.getSaveFileName(self, "Save Measurement Data", default_filename, "CSV Files (*.csv)")
@@ -479,10 +618,10 @@ class MainWindow(QMainWindow):
                 with open(path, mode='w', newline='', encoding='utf-8') as file:
                     writer = csv.writer(file, delimiter=';')
 
-                    writer.writerow(["# Specimen Name", self.input_name.text()])
-                    writer.writerow(["# L0 (mm)", self.input_length.text()])
-                    writer.writerow(["# Width (mm)", self.input_width.text()])
-                    writer.writerow(["# Thickness (mm)", self.input_thickness.text()])
+                    writer.writerow(["# Specimen Name", info["name"]])
+                    writer.writerow(["# L0 (mm)", info["l0"]])
+                    writer.writerow(["# Width (mm)", info["width"]])
+                    writer.writerow(["# Thickness (mm)", info["thickness"]])
                     writer.writerow([])
 
                     writer.writerow(['Time (s)', 'Force (N)', 'Displacement (mm)', 'Stress (MPa)', 'Strain (%)'])
@@ -506,6 +645,9 @@ class MainWindow(QMainWindow):
         self.worker.wait()
         event.accept()
 
+    # ------------------------------------------------------------------
+    # Ablauf-Popups
+    # ------------------------------------------------------------------
     def show_safety_popup(self):
         popup = QMessageBox(self)
         popup.setWindowTitle("Safety Confirmation")
@@ -523,13 +665,16 @@ class MainWindow(QMainWindow):
         popup = QMessageBox(self)
         popup.setWindowTitle("Motor Referencing")
         popup.setIcon(QMessageBox.Information)
-        popup.setText("Motor run in reference (Zero) position.")
+        popup.setText("Motor runs to the reference (zero) position.")
 
         btn_start = popup.addButton("Start Referencing", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
 
         popup.exec_()
         if popup.clickedButton() == btn_start:
+            if not self._require_connection():
+                return
+            self.worker.send_command("HOMING")
             self.show_insert_specimen_popup()
 
     def show_insert_specimen_popup(self):
@@ -537,8 +682,8 @@ class MainWindow(QMainWindow):
         popup.setWindowTitle("Insert Specimen")
         popup.setIcon(QMessageBox.Information)
         popup.setText(
-            "Reference position reached!\n\n"
-            "Please insert the specimen into the testing system and ensure it is positioned correctly.\n\n"
+            "Wait until the motor has stopped at the reference position.\n\n"
+            "Then insert the specimen into the testing system and ensure it is positioned correctly.\n\n"
         )
         btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
@@ -563,16 +708,12 @@ class MainWindow(QMainWindow):
         if popup.clickedButton() == btn_start:
             self.start_measurement()
 
-    def show_remvoe_specimen_popup(self):
-        popup = QMessageBox(self)
-        popup.setWindowTitle("Remove Specimen")
-        popup.setIcon(QMessageBox.Information)
-        popup.setText(
-            "Motor reached initional position again\n\n"
-            "Please remove the specimen out of the testing system\n\n"
+    def show_remove_specimen_popup(self):
+        QMessageBox.information(
+            self, "Remove Specimen",
+            "Wait until the motor has stopped.\n\n"
+            "Then remove the specimen from the testing system."
         )
-        btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
-        popup.addButton("Cancel", QMessageBox.RejectRole)
 
 
 if __name__ == '__main__':
