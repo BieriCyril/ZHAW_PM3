@@ -17,6 +17,8 @@
 // --- ZUSTANDSMODELL (STATE MACHINE) ---
 enum MachineStep { 
     ST_IDLE,
+    ST_REFERENCING, // 20.11.26 Motor fährt zu Intialposition
+    ST_WAIT_SPECIMEN, // 20.11.26Warten auf Einlegen der Probe
     ST_PULL_BACK,
     ST_FINISHED,
     ST_FAULT,
@@ -34,6 +36,12 @@ int main()
 
     // Emergency Stop Button (z.B. an Pin xx) - PullUp (0 = gedrückt, 1 = in Ordnung)
     DigitalIn e_stop_button(PC_6); 
+
+    // Endschalter für Initialposition
+    // 20.11.26
+    DigitalIn limit_switch(PC_7);
+    limit_switch.mode(PullUp); // 0 = betätigt, 1 = nicht betätigt
+    const float reference_speed = -1.0f; // Geschwindigkeit für Referenzfahrt
 
     // HX711 Pins
     DigitalOut hx711_sck(PB_4); 
@@ -130,6 +138,8 @@ int main()
                     
                     pull_back_timer.reset();
                     pull_back_timer.start();
+                    // 20.11.26 machine_step = ST_REFERENCING;
+                    // 20.11.26 printf("Transition to Step: ST_REFERENCING\n");
                     machine_step = MachineStep::ST_PULL_BACK;
                     printf("Transition to Step: ST_PULL_BACK\n");
                 } 
@@ -150,6 +160,38 @@ int main()
                 break;
             }
             
+            // 20.11.26
+            case MachineStep::ST_REFERENCING: {
+                // prüfen, ob Intialposition erreicht ist
+                if (limit_switch.read() == 0) {
+
+                    // Motor stoppen
+                    stepper_M1.setVelocity(0.0f);
+
+                    // Referenzposition erreicht
+                    machine_step = MachineStep::ST_WAIT_SPECIMEN;
+                    printf("Transition to Step: ST_WAIT_SPECIMEN\n");
+                } else {
+                    // Motor fährt zur Initialposition
+                    stepper_M1.setVelocity(reference_speed);
+                }
+                break;
+            }
+
+            
+            // 20.11.26
+            case MachineStep::ST_WAIT_SPECIMEN: {
+                // Motor bleibt gestoppt
+                stepper_M1.setVelocity(0.0f);
+
+                // Warten auf Bestätigung vom GUI-Pop-UP "Specimen inserted"
+                if (gui.cmd_specimen_confirmed) {
+                    gui.cmd_specimen_confirmed = false;
+                    machine_step = MachineStep::ST_PULL_BACK;
+                    printf("Transition to Step: ST_PULL_BACK\n");
+                }
+            }
+
             case MachineStep::ST_PULL_BACK: {
                 // Motor zieht mit voreingestellter Geschwindigkeit
                 stepper_M1.setVelocity(gui.pull_back_speed); //- pull back speed

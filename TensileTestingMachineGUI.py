@@ -688,9 +688,14 @@ class MainWindow(QMainWindow):
         btn_confirm = popup.addButton("Confirm", QMessageBox.AcceptRole)
         popup.addButton("Cancel", QMessageBox.RejectRole)
 
+        # 20.11.26
         popup.exec_()
         if popup.clickedButton() == btn_confirm:
             self.show_startup_popup()
+            if not self._require_connection():
+                return
+            self.worker.send_command("ConfirmSpecimenInserted")
+            self.show_insert_specimen_popup()
 
     def show_startup_popup(self):
         popup = QMessageBox(self)

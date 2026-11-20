@@ -38,6 +38,10 @@ void GuiParser::parse_command() {
         cmd_reset = true;
         printf("Befehl erkannt: RESET\n");
     } 
+    else if (strncmp(rx_buffer, "Specimen_Confirmed", 18) == 0) {   //20.11.26
+        cmd_specimen_confirmed = true;
+        printf("Befehl erkannt: Specimen_Confirmed\n");
+    }
     else if (strncmp(rx_buffer, "JOG_FWD", 7) == 0) {
         jog_fwd = true;
         printf("Befehl erkannt: JOG_FWD\n");
