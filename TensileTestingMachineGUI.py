@@ -358,7 +358,7 @@ class MainWindow(QMainWindow):
         self.input_pull_time = QLineEdit("5000")
         self.input_pull_speed = QLineEdit("2.0")
         self.input_jog_speed = QLineEdit("1.0")
-        self.input_calib = QLineEdit("358.0")
+        self.input_calib = QLineEdit("-21630.5")
         btn_send_params = QPushButton("Apply Parameters")
         btn_send_params.clicked.connect(self.send_machine_parameters)
         mach_param_layout.addRow("Pull Time (ms):", self.input_pull_time)

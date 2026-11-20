@@ -7,12 +7,9 @@
 #include "DebounceIn.h"
 #include "Stepper.h"
 
-
 //- ASW Driver
 #include "HX711.h"
 #include "GuiParser.h"
-
-
 
 // --- ZUSTANDSMODELL (STATE MACHINE) ---
 enum MachineStep { 
@@ -24,10 +21,7 @@ enum MachineStep {
 
 int main()
 {
-    
-    printf("Anfang\n");
-
-    
+    printf("Anfang\n");    
     // --- Hardware Objekte ---
     Stepper stepper_M1(PB_9, PB_8);
     DigitalOut enableSTEPPER(PB_6); //- Enable Pin für Stepper (1 = deaktiviert, 0 = aktiviert)
@@ -46,13 +40,9 @@ int main()
     volatile int32_t tare_offset = 95900; 
     volatile int32_t last_raw_force = 0;
     volatile float last_force_N = 0.0f;
-    float calibration_factor = 358.0f; //- Default calibration factor, can be adjusted via GUI
-    const float spindl_steigung_mm = 1.0f; //-m6
+    float calibration_factor = -21630.5f; //- Default calibration factor, can be adjusted via GUI
+    const float spindel_steigung_mm = 1.0f; //-m6
     float displacement_mm = 0.0f;
-
-
-    // --- STEPPER SIMULATION ---
-    bool STEPPER_SIM_WAY = false; // Auf 'false' stellen, wenn der echte Motor wieder läuft!
 
 // --- Funktion zum Auslesen des HX711, construct object
     HX711 loadcell(PB_4, PC_5);
@@ -201,25 +191,14 @@ int main()
         user_led = !user_led;
 
 
-        // --- Wegberechnung (Echt oder Simulation) ---
-
-        if (STEPPER_SIM_WAY) {
-            // Wenn die Simulation aktiv ist und wir im Zug-Modus sind
-            if (machine_step == MachineStep::ST_PULL_BACK) {
-                // Simuliere z. B. 1.5 mm Vorschub pro Sekunde (anpassbar über Faktor)
-                uint32_t elapsed_pull_time = duration_cast<milliseconds>(pull_back_timer.elapsed_time()).count();
-                displacement_mm = (elapsed_pull_time / 1000.0f) * 1.5f; 
-            } else if (machine_step == MachineStep::ST_IDLE) {
-                displacement_mm = 0.0f; // Im Idle zurücksetzen
-            }
-        } else {
-            // Echte Hardware (Spindel & Stepper)
-            displacement_mm = stepper_M1.getRotation() * spindl_steigung_mm;
-        }
+        // --- Wegberechnung 
+        // Echte Hardware (Spindel & Stepper)
+        displacement_mm = stepper_M1.getRotation() * spindel_steigung_mm;
 
 
-        // Nur im PULL_BACK-Zustand aktivieren (0 = Ein, 1 = Aus)
-        if (machine_step == MachineStep::ST_PULL_BACK) {
+ // --- Stepper Enable Logik (0 = aktiviert, 1 = deaktiviert) ---
+        bool is_jogging = (machine_step == MachineStep::ST_IDLE) && (gui.jog_fwd || gui.jog_rev);
+        if (machine_step == MachineStep::ST_PULL_BACK || is_jogging) { 
             enableSTEPPER.write(0); // Aktiviert
             //printf("Stepper an\n");
         } else {
@@ -232,6 +211,7 @@ int main()
         if (print_timer.read_ms() >= printcycle) {
             printf("State: %d\n", machine_step);
             printf("%.3f;%.3f;%.3f\n", time_s, last_force_N, displacement_mm);
+            //printf("Rawforce :%d\n", last_raw_force);
             print_timer.reset();
         }
 
