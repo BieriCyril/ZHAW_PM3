@@ -383,9 +383,9 @@ class MainWindow(QMainWindow):
         # Machine Parameters (TIME, PULL_SPEED, JOG_SPD)
         mach_param_group = QGroupBox("Test & Motor Parameters")
         mach_param_layout = QFormLayout()
-        self.input_pull_time = QLineEdit("5000")
+        self.input_pull_time = QLineEdit("20000")
         self.input_pull_speed = QLineEdit("2.0")
-        self.input_jog_speed = QLineEdit("1.0")
+        self.input_jog_speed = QLineEdit("2.0")
         self.input_calib = QLineEdit("-21630.5")
         btn_send_params = QPushButton("Apply Parameters")
         btn_send_params.clicked.connect(self.send_machine_parameters)
@@ -490,6 +490,12 @@ class MainWindow(QMainWindow):
                 self.btn_connect.setEnabled(False)
                 self.btn_disconnect.setEnabled(True)
                 self.cb_ports.setEnabled(False)
+                # Maschinenparameter automatisch an die Firmware senden
+                QTimer.singleShot(
+                   500,
+                   lambda: self.worker.is_connected and self.send_machine_parameters()
+               )
+
 
     def disconnect_serial(self):
         self.worker.disconnect_port()

@@ -127,9 +127,6 @@ int main()
                 if (gui.cmd_reference_start) { // 20.11.26
                     // GUI hat Startbefehl gesendet
                     gui.cmd_reference_start = false; // Befehl quittieren/zurücksetzen
-                    rotation_offset = stepper_M1.getRotation(); // Weg beim Teststart sicher auf 0 setzen
-                    pull_back_timer.reset();
-                    pull_back_timer.start();
                     machine_step = MachineStep::ST_REFERENCING;
                     printf("Transition to Step: ST_REFERENCING\n");
                 } 
@@ -153,13 +150,7 @@ int main()
             // 20.11.26
             case MachineStep::ST_REFERENCING: {
                 // prüfen, ob Intialposition erreicht ist
-
-                if (limit_switch.read() == 0){
-                    printf("Limit Switch aktiviert. Referenzfahrt beendet.\n");
-                } else {
-                    printf("Limit Switch nicht aktiviert. Referenzfahrt läuft.\n");  
-                }
-                
+               
                 if ((limit_switch.read() == 0) || (gui.cmd_reference_complete)) { // Limit Switch betätigt oder GUI hat Referenzfahrt abgeschlossen
                     // Motor stoppen
                     stepper_M1.setVelocity(0.0f);
@@ -179,12 +170,15 @@ int main()
             case MachineStep::ST_WAIT_SPECIMEN: {
                 // Motor bleibt gestoppt
                 stepper_M1.setVelocity(0.0f);
-
+                rotation_offset = stepper_M1.getRotation(); // Weg beim Teststart sicher auf 0 setzen
                 // Warten auf Bestätigung vom GUI-Pop-UP "Specimen inserted"
                 if (gui.cmd_specimen_confirmed) {
                     gui.cmd_specimen_confirmed = false;
                     machine_step = MachineStep::ST_PULL_BACK;
                     printf("Transition to Step: ST_PULL_BACK\n");
+                    pull_back_timer.reset();
+                    pull_back_timer.start();
+
                 }
                 break;
             }
