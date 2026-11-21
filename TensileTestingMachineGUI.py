@@ -33,6 +33,21 @@ MACHINE_STATES = [
 ST_IDLE, ST_REFERENCING, ST_WAIT_SPECIMEN, ST_PULL_BACK, ST_FINISHED, ST_FAULT = range(len(MACHINE_STATES))
 
 
+# Kontakt-Erkennung: ab hier trägt die Probe wirklich Last
+ZERO_FORCE_THRESHOLD_N = 0.15
+ZERO_CONSECUTIVE = 3   # so viele Messpunkte in Folge über der Schwelle
+
+
+def find_contact_index(force_N):
+    """Erster Index, ab dem die Kraft ZERO_CONSECUTIVE Samples in Folge über der Schwelle liegt."""
+    run = 0
+    for i, above in enumerate(force_N > ZERO_FORCE_THRESHOLD_N):
+        run = run + 1 if above else 0
+        if run >= ZERO_CONSECUTIVE:
+            return i - ZERO_CONSECUTIVE + 1
+    return None
+
+
 class MeasurementWorker(QThread):
     connection_status = pyqtSignal(bool, str)
     state_update = pyqtSignal(str)
@@ -492,9 +507,9 @@ class MainWindow(QMainWindow):
                 self.cb_ports.setEnabled(False)
                 # Maschinenparameter automatisch an die Firmware senden
                 QTimer.singleShot(
-                   500,
-                   lambda: self.worker.is_connected and self.send_machine_parameters()
-               )
+                    500,
+                    lambda: self.worker.is_connected and self.send_machine_parameters()
+                )
 
 
     def disconnect_serial(self):
@@ -591,6 +606,12 @@ class MainWindow(QMainWindow):
         time_array = arr[:, 0]
         force_N = arr[:, 1]
         displacement_mm = arr[:, 2]
+
+        idx = find_contact_index(force_N)
+        if idx is not None:
+            time_array = time_array[idx:] - time_array[idx]
+            force_N = force_N[idx:]
+            displacement_mm = displacement_mm[idx:] - displacement_mm[idx]
 
         l0, width, thickness = self._active_geometry()
 
