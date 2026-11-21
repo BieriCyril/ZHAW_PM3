@@ -46,6 +46,10 @@ void GuiParser::parse_command() {
         cmd_reference_start = true;
         printf("Befehl erkannt: Reference_Start\n");
     }
+    else if (strncmp(rx_buffer, "REFERENCE_COMPLETE", 18) == 0) {   //20.11.26
+        cmd_reference_complete = true;
+        printf("Befehl erkannt: Reference_Complete\n");
+    }
     else if (strncmp(rx_buffer, "JOG_FWD", 7) == 0) {
         jog_fwd = true;
         printf("Befehl erkannt: JOG_FWD\n");

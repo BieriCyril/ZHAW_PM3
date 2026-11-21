@@ -413,7 +413,7 @@ class MainWindow(QMainWindow):
         btn_tare.clicked.connect(lambda: self.worker.send_command("TARE"))
 
         btn_ref_done = QPushButton("Reference done")
-        btn_ref_done.clicked.connect(lambda: self.worker.send_command("ReferenceDone"))
+        btn_ref_done.clicked.connect(lambda: self.worker.send_command("REFERENCE_COMPLETE"))
 
         ctrl_layout.addWidget(btn_ref)
         ctrl_layout.addWidget(btn_ref_done)

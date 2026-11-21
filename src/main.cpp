@@ -160,11 +160,10 @@ int main()
                     printf("Limit Switch nicht aktiviert. Referenzfahrt läuft.\n");  
                 }
                 
-                if (limit_switch.read() == 0) {
-
+                if ((limit_switch.read() == 0) || (gui.cmd_reference_complete)) { // Limit Switch betätigt oder GUI hat Referenzfahrt abgeschlossen
                     // Motor stoppen
                     stepper_M1.setVelocity(0.0f);
-
+                    gui.cmd_reference_complete = false; // Befehl quittieren
                     // Referenzposition erreicht
                     machine_step = MachineStep::ST_WAIT_SPECIMEN;
                     printf("Transition to Step: ST_WAIT_SPECIMEN\n");
