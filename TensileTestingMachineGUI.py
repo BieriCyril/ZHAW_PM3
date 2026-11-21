@@ -29,6 +29,8 @@ MACHINE_STATES = [
     ("ST_FINISHED", "Finished"),
     ("ST_FAULT", "Fault"),
 ]
+# Enum-Werte (müssen zur Reihenfolge in MACHINE_STATES / Firmware passen)
+ST_IDLE, ST_REFERENCING, ST_WAIT_SPECIMEN, ST_PULL_BACK, ST_FINISHED, ST_FAULT = range(len(MACHINE_STATES))
 
 
 class MeasurementWorker(QThread):
@@ -94,12 +96,14 @@ class MeasurementWorker(QThread):
             match = STATE_RE.search(line)
             if match:
                 state = int(match.group(1))
-                if state == 1:
+                if state == ST_PULL_BACK:
                     self.saw_pull_state = True
-                elif self.is_recording and self.saw_pull_state and state in (2, 3):
-                    self.is_recording = False
-                    finished_snapshot = list(self.recorded_data)
-                    fault = (state == 3)
+                elif self.is_recording and state in (ST_FINISHED, ST_FAULT):
+                    # Fault gilt jederzeit, normales Ende nur nach einem Zug
+                    if state == ST_FAULT or self.saw_pull_state:
+                        self.is_recording = False
+                        finished_snapshot = list(self.recorded_data)
+                        fault = (state == ST_FAULT)
             elif ";" in line and "State" not in line:
                 parts = line.split(";")
                 if len(parts) == 3:
@@ -107,9 +111,9 @@ class MeasurementWorker(QThread):
                         t = float(parts[0])
                         f = float(parts[1])
                         d = float(parts[2])
-                        self.plot_buffer.append((t, f, d))
-                        # Aufzeichnung erst ab Zugbeginn (State: 1)
+                        # Live-Plot und Aufzeichnung erst ab Zugbeginn (State: ST_PULL_BACK)
                         if self.is_recording and self.saw_pull_state:
+                            self.plot_buffer.append((t, f, d))
                             self.recorded_data.append((t, f, d))
                     except ValueError:
                         pass
@@ -556,7 +560,8 @@ class MainWindow(QMainWindow):
         self.messdaten = None
 
         self.worker.start_recording()
-        self.worker.send_command("START")
+        # Die Firmware startet den Zug mit diesem Kommando (ST_WAIT_SPECIMEN -> ST_PULL_BACK)
+        self.worker.send_command("Specimen_Confirmed")
 
     def trigger_estop(self):
         self.worker.send_command("E-STOP")
@@ -597,7 +602,11 @@ class MainWindow(QMainWindow):
 
     def on_measurement_finished(self, raw_points, fault):
         if not raw_points:
-            QMessageBox.warning(self, "Error", "No data received during measurement!")
+            if fault:
+                QMessageBox.warning(self, "Test aborted",
+                                    "The test was aborted by a fault / E-STOP before the pull started.")
+            else:
+                QMessageBox.warning(self, "Error", "No data received during measurement!")
             return
 
         try:
@@ -719,9 +728,6 @@ class MainWindow(QMainWindow):
         # 20.11.26
         popup.exec_()
         if popup.clickedButton() == btn_confirm:
-            if not self._require_connection():
-                return
-            self.worker.send_command("ConfirmSpecimenInserted")
             self.show_startup_popup()
 
     def show_startup_popup(self):
