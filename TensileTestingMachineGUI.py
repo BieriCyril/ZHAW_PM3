@@ -27,10 +27,11 @@ MACHINE_STATES = [
     ("ST_WAIT_SPECIMEN", "Waiting for specimen insertion"),
     ("ST_PULL_BACK", "Pull back"),
     ("ST_FINISHED", "Finished"),
+    ("ST_RETURN", "Returning to start position"),
     ("ST_FAULT", "Fault"),
 ]
 # Enum-Werte (müssen zur Reihenfolge in MACHINE_STATES / Firmware passen)
-ST_IDLE, ST_REFERENCING, ST_WAIT_SPECIMEN, ST_PULL_BACK, ST_FINISHED, ST_FAULT = range(len(MACHINE_STATES))
+ST_IDLE, ST_REFERENCING, ST_WAIT_SPECIMEN, ST_PULL_BACK, ST_FINISHED, ST_RETURN, ST_FAULT = range(len(MACHINE_STATES))
 
 
 # Kontakt-Erkennung: ab hier trägt die Probe wirklich Last
@@ -408,7 +409,7 @@ class MainWindow(QMainWindow):
         # Machine Parameters (TIME, PULL_SPEED, JOG_SPD)
         mach_param_group = QGroupBox("Test & Motor Parameters")
         mach_param_layout = QFormLayout()
-        self.input_pull_time = QLineEdit("20000")
+        self.input_pull_time = QLineEdit("50000")
         self.input_pull_speed = QLineEdit("2.0")
         self.input_jog_speed = QLineEdit("2.0")
         self.input_calib = QLineEdit("-21630.5")

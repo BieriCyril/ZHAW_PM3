@@ -18,6 +18,7 @@ enum MachineStep {
     ST_WAIT_SPECIMEN, // 20.11.26Warten auf Einlegen der Probe
     ST_PULL_BACK,
     ST_FINISHED,
+    ST_RETURN,
     ST_FAULT,
 } machine_step = ST_IDLE; // Start-Zustand
 
@@ -69,6 +70,7 @@ int main()
     Timer print_timer;                  
     Timer total_timer;                  
     Timer pull_back_timer;              // Misst die Zeit im PULL_BACK State
+    Timer return_timer;
 
     DigitalOut user_led(LED1);
 
@@ -123,7 +125,7 @@ int main()
             
             case MachineStep::ST_IDLE: {
                 // In IDLE warten wir auf GUI Befehle (Start oder Jogging)
-                
+                gui.cmd_reset = false; // Alte Reset-Befehle verwerfen
                 if (gui.cmd_reference_start) { // 20.11.26
                     // GUI hat Startbefehl gesendet
                     gui.cmd_reference_start = false; // Befehl quittieren/zurücksetzen
@@ -133,7 +135,7 @@ int main()
                 else if (gui.jog_fwd) {
                     stepper_M1.setVelocity(gui.jog_speed); //- forward speed
                 } 
-                else if (gui.jog_rev) {
+                else if (gui.jog_rev && limit_switch.read() == 1) {
                     stepper_M1.setVelocity(- (gui.jog_speed)); //- inverse speed
                 } 
                 else {
@@ -171,9 +173,11 @@ int main()
                 // Motor bleibt gestoppt
                 stepper_M1.setVelocity(0.0f);
                 rotation_offset = stepper_M1.getRotation(); // Weg beim Teststart sicher auf 0 setzen
+                gui.cmd_reset = false; // Alte Reset-Befehle verwerfen
                 // Warten auf Bestätigung vom GUI-Pop-UP "Specimen inserted"
                 if (gui.cmd_specimen_confirmed) {
                     gui.cmd_specimen_confirmed = false;
+                    if (last_raw_force != 0) tare_offset = last_raw_force;
                     machine_step = MachineStep::ST_PULL_BACK;
                     printf("Transition to Step: ST_PULL_BACK\n");
                     pull_back_timer.reset();
@@ -186,6 +190,7 @@ int main()
             case MachineStep::ST_PULL_BACK: {
                 // Motor zieht mit voreingestellter Geschwindigkeit
                 stepper_M1.setVelocity(gui.pull_back_speed); //- pull back speed
+                gui.cmd_reset = false; // Alte Reset-Befehle verwerfen
                 
                 // Prüfen, ob die geforderte Zeit abgelaufen ist
                 uint32_t elapsed_pull_time = duration_cast<milliseconds>(pull_back_timer.elapsed_time()).count();
@@ -205,16 +210,37 @@ int main()
                 stepper_M1.setVelocity(0.0f);
                 
                 if (gui.cmd_reset) {
-                    gui.cmd_reset = false; // Befehl quittieren
-                    
-                    // Tara neu setzen vor dem nächsten Lauf (optional)
+                    gui.cmd_reset = false;
+                    gui.cmd_reference_start = false;
+                    gui.cmd_specimen_confirmed = false;
+                    return_timer.reset();
+                    return_timer.start();
+                    machine_step = MachineStep::ST_RETURN;
+                    printf("Transition to Step: ST_RETURN\n");
+                }
+                break;
+            }
+
+
+                case MachineStep::ST_RETURN: {
+                // Motor fährt mit Zuggeschwindigkeit zurück
+                stepper_M1.setVelocity(-(gui.pull_back_speed));
+
+                // Prüfen, ob die geforderte Rückfahrzeit (Testzeit - 5 s) abgelaufen ist
+                int64_t elapsed_return_time = duration_cast<milliseconds>(return_timer.elapsed_time()).count();
+                int64_t return_time_ms = (int64_t)gui.pull_back_time_ms - 5000;
+
+                if (elapsed_return_time >= return_time_ms || limit_switch.read() == 0) {
+                    stepper_M1.setVelocity(0.0f); // Motor stoppen
+                    return_timer.stop();
                     if (last_raw_force != 0) tare_offset = last_raw_force;
-                    
+
                     machine_step = MachineStep::ST_IDLE;
                     printf("Transition to Step: ST_IDLE\n");
                 }
                 break;
             }
+
 
             case MachineStep::ST_FAULT: {
                 // Fehlerzustand blockiert alle Bewegungen
@@ -223,6 +249,8 @@ int main()
                 // Maschine darf nur zurückgesetzt werden, wenn Not-Aus gelöst ist (== 1) UND GUI Reset gesendet wurde
                 if (e_stop_button.read() == 1 && gui.cmd_reset) {
                     gui.cmd_reset = false;
+                    gui.cmd_reference_start = false;
+                    gui.cmd_specimen_confirmed = false;
                     machine_step = MachineStep::ST_IDLE;
                     printf("Fehler quittiert. Transition to Step: ST_IDLE\n");
                 }
@@ -239,8 +267,11 @@ int main()
         displacement_mm = (stepper_M1.getRotation() - rotation_offset) * spindel_steigung_mm;
 
  // --- Stepper Enable Logik (0 = aktiviert, 1 = deaktiviert) ---
-        bool is_jogging = (machine_step == MachineStep::ST_IDLE) && (gui.jog_fwd || gui.jog_rev);
-        if (machine_step == MachineStep::ST_PULL_BACK || is_jogging  ||  machine_step == MachineStep::ST_REFERENCING) { 
+        bool is_jogging = (machine_step == MachineStep::ST_IDLE) && (gui.jog_fwd || (gui.jog_rev && limit_switch.read() == 1));
+        if (machine_step == MachineStep::ST_PULL_BACK || is_jogging  ||  machine_step == MachineStep::ST_REFERENCING   ||  machine_step == MachineStep::ST_RETURN)
+
+        
+        { 
             enableSTEPPER.write(0); // Aktiviert
             //printf("Stepper an\n");
         } else {
