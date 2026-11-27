@@ -12,7 +12,7 @@ import serial.tools.list_ports
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QGroupBox,
                              QFileDialog, QMessageBox, QLineEdit, QFormLayout,
-                             QComboBox, QTextEdit)
+                             QComboBox, QTextEdit, QCheckBox)
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 import pyqtgraph as pg
 
@@ -343,6 +343,10 @@ class MainWindow(QMainWindow):
         self.lbl_state = QLabel("Status: READY")
         self.lbl_state.setStyleSheet("font-weight: bold; font-size: 14px; margin-left: 20px;")
 
+        self.chk_dev_mode = QCheckBox("Developer Mode")
+        self.chk_dev_mode.setChecked(False)  # Startet im User-Modus
+        self.chk_dev_mode.toggled.connect(self.toggle_developer_mode)
+
         conn_layout.addWidget(QLabel("COM Port:"))
         conn_layout.addWidget(self.cb_ports)
         conn_layout.addWidget(btn_refresh)
@@ -351,12 +355,13 @@ class MainWindow(QMainWindow):
         conn_layout.addWidget(self.lbl_conn)
         conn_layout.addStretch()
         conn_layout.addWidget(self.lbl_state)
+        conn_layout.addWidget(self.chk_dev_mode)
         connection_group.setLayout(conn_layout)
         main_layout.addWidget(connection_group)
 
         # --- STM32 Empfangs-Monitor ---
-        log_group = QGroupBox("STM32 Received Data (Serial Monitor)")
-        log_layout = QVBoxLayout()
+        self.log_group = QGroupBox("STM32 Received Data (Serial Monitor)")
+        self.log_layout = QVBoxLayout()
 
         self.text_log = QTextEdit()
         self.text_log.setReadOnly(True)
@@ -367,11 +372,11 @@ class MainWindow(QMainWindow):
         btn_clear_log = QPushButton("Clear Monitor")
         btn_clear_log.clicked.connect(self.text_log.clear)
 
-        log_layout.addWidget(self.text_log)
-        log_layout.addWidget(btn_clear_log)
-        log_group.setLayout(log_layout)
+        self.log_layout.addWidget(self.text_log)
+        self.log_layout.addWidget(btn_clear_log)
+        self.log_group.setLayout(self.log_layout)
 
-        main_layout.addWidget(log_group)
+        main_layout.addWidget(self.log_group)
 
         # --- Middle Area ---
         mid_layout = QHBoxLayout()
@@ -393,8 +398,8 @@ class MainWindow(QMainWindow):
         left_col.addWidget(param_group)
 
         # State Legend (enum MachineStep der Firmware)
-        legend_group = QGroupBox("State Legend (Firmware)")
-        legend_layout = QVBoxLayout()
+        self.legend_group = QGroupBox("State Legend (Firmware)")
+        self.legend_layout = QVBoxLayout()
         rows = "".join(
             f"<tr><td align='right'><b>{i}</b>&nbsp;</td>"
             f"<td><code>{name}</code>&nbsp;&nbsp;</td><td>{desc}</td></tr>"
@@ -402,30 +407,30 @@ class MainWindow(QMainWindow):
         )
         lbl_legend = QLabel(f"<table cellspacing='2'>{rows}</table>")
         lbl_legend.setStyleSheet("font-size: 11px;")
-        legend_layout.addWidget(lbl_legend)
-        legend_group.setLayout(legend_layout)
-        left_col.addWidget(legend_group)
+        self.legend_layout.addWidget(lbl_legend)
+        self.legend_group.setLayout(self.legend_layout)
+        left_col.addWidget(self.legend_group)
 
         # Machine Parameters (TIME, PULL_SPEED, JOG_SPD)
-        mach_param_group = QGroupBox("Test & Motor Parameters")
-        mach_param_layout = QFormLayout()
+        self.mach_param_group = QGroupBox("Test & Motor Parameters")
+        self.mach_param_layout = QFormLayout()
         self.input_pull_time = QLineEdit("50000")
         self.input_pull_speed = QLineEdit("2.0")
         self.input_jog_speed = QLineEdit("2.0")
         self.input_calib = QLineEdit("-21630.5")
         btn_send_params = QPushButton("Apply Parameters")
         btn_send_params.clicked.connect(self.send_machine_parameters)
-        mach_param_layout.addRow("Pull Time (ms):", self.input_pull_time)
-        mach_param_layout.addRow("Pull Speed:", self.input_pull_speed)
-        mach_param_layout.addRow("Jog Speed:", self.input_jog_speed)
-        mach_param_layout.addRow("Calibration Factor:", self.input_calib)
-        mach_param_layout.addRow(btn_send_params)
-        mach_param_group.setLayout(mach_param_layout)
-        left_col.addWidget(mach_param_group)
+        self.mach_param_layout.addRow("Pull Time (ms):", self.input_pull_time)
+        self.mach_param_layout.addRow("Pull Speed:", self.input_pull_speed)
+        self.mach_param_layout.addRow("Jog Speed:", self.input_jog_speed)
+        self.mach_param_layout.addRow("Calibration Factor:", self.input_calib)
+        self.mach_param_layout.addRow(btn_send_params)
+        self.mach_param_group.setLayout(self.mach_param_layout)
+        left_col.addWidget(self.mach_param_group)
 
         # Machine Control
-        ctrl_group = QGroupBox("Machine Control")
-        ctrl_layout = QVBoxLayout()
+        self.ctrl_group = QGroupBox("Machine Control")
+        self.ctrl_layout = QVBoxLayout()
 
         btn_ref = QPushButton("1. Referencing (Reference Run)")
         btn_ref.setStyleSheet("background-color: #f0e68c;")
@@ -445,13 +450,13 @@ class MainWindow(QMainWindow):
         btn_ref_done = QPushButton("Reference done")
         btn_ref_done.clicked.connect(lambda: self.worker.send_command("REFERENCE_COMPLETE"))
 
-        ctrl_layout.addWidget(btn_ref)
-        ctrl_layout.addWidget(btn_ref_done)
-        ctrl_layout.addWidget(btn_fwd)
-        ctrl_layout.addWidget(btn_rev)
-        ctrl_layout.addWidget(btn_tare)
-        ctrl_group.setLayout(ctrl_layout)
-        left_col.addWidget(ctrl_group)
+        self.ctrl_layout.addWidget(btn_ref)
+        self.ctrl_layout.addWidget(btn_ref_done)
+        self.ctrl_layout.addWidget(btn_fwd)
+        self.ctrl_layout.addWidget(btn_rev)
+        self.ctrl_layout.addWidget(btn_tare)
+        self.ctrl_group.setLayout(self.ctrl_layout)
+        left_col.addWidget(self.ctrl_group)
 
         left_col.addStretch()
         mid_layout.addLayout(left_col, 1)
@@ -496,6 +501,7 @@ class MainWindow(QMainWindow):
 
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
+        self.toggle_developer_mode(False)
 
     # ------------------------------------------------------------------
     # Verbindung
@@ -608,6 +614,12 @@ class MainWindow(QMainWindow):
     def reset_machine(self):
         self.worker.send_command("RESET")
         self.on_state_update("READY")
+
+    def toggle_developer_mode(self, checked):
+        self.log_group.setVisible(checked)
+        self.legend_group.setVisible(checked)
+        self.mach_param_group.setVisible(checked)
+        self.ctrl_group.setVisible(checked)
 
     def _build_messdaten_dict(self, raw_points):
         if not raw_points:
