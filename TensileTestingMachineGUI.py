@@ -68,6 +68,8 @@ class MeasurementWorker(QThread):
 
         self.is_recording = False
         self.saw_pull_state = False
+        self.last_t = None
+        self.last_state = None
 
     @property
     def is_connected(self):
@@ -111,6 +113,7 @@ class MeasurementWorker(QThread):
             match = STATE_RE.search(line)
             if match:
                 state = int(match.group(1))
+                self.last_state = state
                 if state == ST_PULL_BACK:
                     self.saw_pull_state = True
                 elif self.is_recording and state in (ST_FINISHED, ST_FAULT):
@@ -126,10 +129,16 @@ class MeasurementWorker(QThread):
                         t = float(parts[0])
                         f = float(parts[1])
                         d = float(parts[2])
-                        # Live-Plot und Aufzeichnung erst ab Zugbeginn (State: ST_PULL_BACK)
                         if self.is_recording and self.saw_pull_state:
-                            self.plot_buffer.append((t, f, d))
-                            self.recorded_data.append((t, f, d))
+                            if t == self.last_t:
+                                # Zeit steht still: Firmware hat den Timer gestoppt -> Ende
+                                self.is_recording = False
+                                finished_snapshot = list(self.recorded_data)
+                                fault = (self.last_state == ST_FAULT)
+                            else:
+                                self.last_t = t
+                                self.plot_buffer.append((t, f, d))
+                                self.recorded_data.append((t, f, d))
                     except ValueError:
                         pass
 
@@ -167,6 +176,7 @@ class MeasurementWorker(QThread):
             self.recorded_data.clear()
             self.is_recording = True
             self.saw_pull_state = False
+            self.last_t = None
         self.state_update.emit("MEASUREMENT RUNNING...")
 
     def stop_recording(self):

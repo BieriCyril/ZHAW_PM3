@@ -91,8 +91,6 @@ int main()
         // Serielle Befehle von der GUI einlesen!
         gui.check_serial();
 
-        // Zeit & Kraft messen (unabhängig vom Zustand immer ausführen)
-        float time_s = duration_cast<milliseconds>(pull_back_timer.elapsed_time()).count() / 1000.0f;
         int32_t raw_force = loadcell.read(); //- read loadcell
         
 
@@ -105,17 +103,19 @@ int main()
         // NOT-AUS ÜBERWACHUNG (höchste Priorität)
         // Angenommen: Wenn Pin auf 0 gezogen wird (GND), ist Not-Aus gedrückt
         if (e_stop_button.read() == 0 && machine_step != MachineStep::ST_FAULT) {
-            machine_step = MachineStep::ST_FAULT;
             stepper_M1.setVelocity(0.0f);
+            pull_back_timer.stop();
+            machine_step = MachineStep::ST_FAULT;
             printf("NOT-AUS GEDRUECKT! Wechsel in ST_FAULT\n");
         }
 
                 // Angenommen: Wenn Pin auf 0 gezogen wird (GND), ist Not-Aus gedrückt
         if (gui.ESTOP && machine_step != MachineStep::ST_FAULT) {
-            machine_step = MachineStep::ST_FAULT;
-            stepper_M1.setVelocity(0.0f);
-            printf("NOT-HALT VON GUI GEDRUECKT! Wechsel in ST_FAULT\n");
             gui.ESTOP = false; // Reset the command after handling
+            stepper_M1.setVelocity(0.0f);
+            pull_back_timer.stop();
+            machine_step = MachineStep::ST_FAULT;
+            printf("NOT-HALT VON GUI GEDRUECKT! Wechsel in ST_FAULT\n");
         }
 
         // STATE MACHINE LOGIK
@@ -250,6 +250,7 @@ int main()
 
 
         // --- Telemetrie-Daten via Serial ausgeben (für die GUI) ---
+        float time_s = duration_cast<milliseconds>(pull_back_timer.elapsed_time()).count() / 1000.0f;
         if (print_timer.read_ms() >= printcycle) {
             printf("State: %d\n", machine_step);
             printf("%.3f;%.3f;%.3f\n", time_s, last_force_N, displacement_mm);
