@@ -75,7 +75,7 @@ int main()
 
     // Konstanten
 
-    const int printcycle = 200; // Ausgabe alle 200ms
+    const int printcycle = 20; // Ausgabe alle 200ms
 
     // Timer starten
     main_task_timer.start();
