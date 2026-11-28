@@ -38,10 +38,6 @@ int main()
     limit_switch.mode(PullUp); // 0 = betätigt, 1 = nicht betätigt
     const float reference_speed = -1.0f; // Geschwindigkeit für Referenzfahrt
 
-    // HX711 Pins
-    DigitalOut hx711_sck(PB_4); 
-    DigitalIn  hx711_dt(PC_5);  
-
     // Das GUI-Objekt ---
     GuiParser gui;
 
@@ -61,7 +57,6 @@ int main()
     printf("Obejkte initialisiert\n");
 
     // Hardware initialisieren
-    hx711_sck.write(0);
     e_stop_button.mode(PullUp); // Not-Aus Schalter nutzt internen PullUp-Widerstand
 
     // Timer einrichten
