@@ -36,7 +36,7 @@ ST_IDLE, ST_REFERENCING, ST_WAIT_SPECIMEN, ST_PULL_BACK, ST_FINISHED, ST_RETURN,
 
 # Kontakt-Erkennung: ab hier trägt die Probe wirklich Last
 ZERO_FORCE_THRESHOLD_N = 0.15
-ZERO_CONSECUTIVE = 3   # so viele Messpunkte in Folge über der Schwelle
+ZERO_CONSECUTIVE = 12   # so viele Messpunkte in Folge über der Schwelle
 
 
 def find_contact_index(force_N):
