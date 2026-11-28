@@ -72,7 +72,7 @@ int main()
 
     // Konstanten
 
-    const int printcycle = 20; // Ausgabe alle 200ms
+    const int printcycle = 100; // limited by loadcell update rate (10 Hz) - 100 ms
 
     // Timer starten
     main_task_timer.start();
